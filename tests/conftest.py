@@ -42,3 +42,12 @@ def auth_client(client):
         id="00000000-0000-0000-0000-000000000001", email="admin@example.com", rol="admin"
     )
     return client
+
+
+@pytest.fixture
+def employee_client(client):
+    """Client whose requests are authenticated as a non-admin (`empleado`) user."""
+    app.dependency_overrides[get_current_user] = lambda: AppUser(
+        id="00000000-0000-0000-0000-000000000002", email="empleado@example.com", rol="empleado"
+    )
+    return client

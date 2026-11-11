@@ -7,7 +7,7 @@ from postgrest.exceptions import APIError
 
 from app.api.v1.endpoints import caja, catalogos, clientes, productos, reportes, usuarios, ventas
 from app.core.config import settings
-from app.core.exceptions import CajaError, StockError
+from app.core.exceptions import CajaError, StockError, UsuarioError
 from app.core.supabase import supabase
 
 logging.basicConfig(
@@ -53,6 +53,14 @@ app.add_middleware(
 async def stock_exception_handler(request: Request, exc: StockError):
     return JSONResponse(
         status_code=400,
+        content={"detail": exc.message},
+    )
+
+
+@app.exception_handler(UsuarioError)
+async def usuario_exception_handler(request: Request, exc: UsuarioError):
+    return JSONResponse(
+        status_code=exc.status_code,
         content={"detail": exc.message},
     )
 
