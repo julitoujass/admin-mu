@@ -1,7 +1,7 @@
 # agents.md — Contexto del Backend `admin-mu`
 
 > **⚠️ Este archivo debe actualizarse cada vez que se modifique la API.**
-> Última actualización: 2026-11-11 — Catálogos, usuarios, roles, borrados y logs documentados
+> Última actualización: 2026-11-11 — Fase 1 (fundaciones): dependencias, settings, CORS, health, manejo global de errores, tests, ruff y CI
 
 ---
 
@@ -28,6 +28,10 @@ El frontend (`pos-mu` — Next.js) consume esta API a través de un proxy intern
 | Config | `pydantic-settings` (.env) |
 | Auth | Supabase Auth (JWT Bearer tokens) |
 | Servidor | Uvicorn |
+| Tests | pytest + FastAPI `TestClient` (httpx) |
+| Lint | ruff |
+
+Las dependencias están fijadas en `requirements.txt` (ejecución) y `requirements-dev.txt` (incluye las anteriores más pytest, httpx y ruff).
 
 ---
 
@@ -35,10 +39,22 @@ El frontend (`pos-mu` — Next.js) consume esta API a través de un proxy intern
 
 ```env
 SUPABASE_URL=https://pwzhrsdmjweoemtfkmrl.supabase.co
-SUPABASE_KEY=<service_role_key>
-JWT_SECRET=<opcional>
+SUPABASE_KEY=<sb_secret_...>
+ENVIRONMENT=development
+CORS_ORIGINS=http://localhost:3000
+LOG_LEVEL=INFO
 ```
-> `JWT_SECRET` está declarado en `core/config.py` pero no se usa: la validación del token la hace Supabase Auth (ver Autenticación).
+
+| Variable | Requerida | Default | Descripción |
+|---|---|---|---|
+| `SUPABASE_URL` | Sí | — | URL del proyecto. No puede estar vacía. |
+| `SUPABASE_KEY` | Sí | — | Clave secreta (equivalente a `service_role`, omite RLS). No puede estar vacía. |
+| `ENVIRONMENT` | No | `development` | Nombre del entorno. |
+| `CORS_ORIGINS` | No | `http://localhost:3000` | Orígenes permitidos, separados por coma. Se expone como lista en `settings.cors_origins_list`. |
+| `LOG_LEVEL` | No | `INFO` | Nivel del logging estándar configurado en `main.py`. |
+
+> `JWT_SECRET` fue eliminado: no se usaba, la validación del token la hace Supabase Auth (ver Autenticación).
+> Las variables de entorno tienen prioridad sobre `.env`; los tests y CI usan valores ficticios y no requieren un `.env` real.
 
 ---
 
@@ -46,7 +62,7 @@ JWT_SECRET=<opcional>
 
 ```
 app/
-├── main.py                        # Entry point: routers + exception handlers
+├── main.py                        # Entry point: logging, CORS, routers, health y exception handlers
 ├── core/
 │   ├── config.py                  # Settings (pydantic-settings, lee .env)
 │   ├── supabase.py                # Singleton del cliente Supabase
@@ -82,6 +98,18 @@ app/
 scripts/
 ├── seed_data.py                   # Carga de datos de prueba
 └── get_token.py                   # Obtiene un JWT de Supabase para probar la API
+tests/
+├── conftest.py                    # Variables de entorno ficticias + fixtures `client` / `auth_client`
+├── test_settings.py               # Settings: defaults, parseo de CORS, validaciones
+├── test_health.py                 # /health y /health/ready
+├── test_cors.py                   # Preflight CORS (origen permitido / desconocido)
+├── test_error_handling.py         # Mapeo de APIError, 500 genérico, errores de catálogos
+└── test_auth_deps.py              # get_current_user: 401 sin filtrar detalles
+.github/workflows/ci.yml           # CI: ruff + pytest en cada push / PR
+pyproject.toml                     # Configuración de ruff y pytest
+requirements.txt                   # Dependencias de ejecución (versiones fijadas)
+requirements-dev.txt               # requirements.txt + pytest, httpx, ruff
+README.md                          # Instalación, ejecución, tests y lint
 ```
 
 ---
@@ -90,7 +118,7 @@ scripts/
 
 - **Mecanismo:** JWT Bearer (tokens de Supabase Auth)
 - **Dependencia:** `get_current_user` en `app/api/auth_deps.py`
-- **Funcionamiento:** Extrae el token del header `Authorization: Bearer <token>` y lo valida con `supabase.auth.get_user(token)` (no hay verificación local del JWT). Si el token es inválido, retorna 401.
+- **Funcionamiento:** Extrae el token del header `Authorization: Bearer <token>` y lo valida con `supabase.auth.get_user(token)` (no hay verificación local del JWT). Si el token es inválido o la validación falla, retorna 401 con el mensaje fijo `"No se pudieron validar las credenciales"`; el error real solo se loguea.
 - **Rol:** Después de validar el token, lee `perfiles.select("roles(nombre)")` para el usuario. Si no tiene perfil/rol o la consulta falla, el rol es `"empleado"`.
 - **`current_user`:** Es un `AppUser` propio con `id`, `email` y `rol` (no el objeto `User` de Supabase).
 - **Cache:** El `AppUser` se cachea en memoria por token durante 5 minutos (`_TOKEN_CACHE`). Un cambio de rol puede tardar hasta 5 min en reflejarse, y el cache no se comparte entre procesos/workers.
@@ -107,12 +135,42 @@ scripts/
 
 ---
 
-## Exception Handlers (Globales)
+## Health y manejo de errores
 
-Definidos en `main.py`:
+Definidos en `main.py`.
 
-| Excepción | HTTP Status | Descripción |
+### Health (sin autenticación)
+
+| Método | Path | Respuesta |
 |---|---|---|
+| GET | `/health` | 200 `{"status": "ok"}`. No toca la base de datos (liveness). |
+| GET | `/health/ready` | Ejecuta una consulta mínima (`roles`, `select id limit 1`). 200 `{"status": "ready"}` o 503 `{"status": "unavailable"}` (readiness). El error se loguea, no se devuelve. |
+
+### Exception handlers globales
+
+| Excepción | HTTP Status | `detail` |
+|---|---|---|
+| `StockError` | 400 | Mensaje de negocio (stock insuficiente o variante no encontrada) |
+| `CajaError` | 400 | Mensaje de negocio (no hay caja abierta, o ya existe una abierta) |
+| `postgrest.APIError` código `23505` | 409 | `Conflicto: el registro ya existe` |
+| `postgrest.APIError` código `23503` | 409 | `Conflicto: el registro está referenciado por otros datos` |
+| `postgrest.APIError` código `PGRST116` | 404 | `Recurso no encontrado` |
+| `postgrest.APIError` código `22P02` | 400 | `Dato inválido` |
+| `postgrest.APIError` (otro código) | 500 | `Error interno del servidor` |
+| `Exception` no manejada | 500 | `Error interno del servidor` |
+
+**Reglas:**
+- El error real (código, mensaje y detalles de PostgREST, o el traceback) se registra con `logging` en el servidor y **nunca** se incluye en la respuesta.
+- Los endpoints no deben devolver `str(e)` de excepciones arbitrarias. Solo se usan como `detail` los mensajes de negocio propios (`ValueError` de los servicios, `StockError`, `CajaError`); cualquier otra excepción se deja propagar a los handlers globales.
+- `HTTPException` y los errores de validación (422) conservan el comportamiento estándar de FastAPI.
+- Las respuestas 500 del handler genérico las emite la capa externa de Starlette, por fuera de `CORSMiddleware`, por lo que no llevan headers CORS.
+
+### CORS y logging
+
+- `CORSMiddleware` con orígenes de `CORS_ORIGINS`, `allow_credentials=False`, métodos `GET, POST, PUT, PATCH, DELETE, OPTIONS` y headers `Authorization, Content-Type, Idempotency-Key`. Un preflight desde un origen no listado recibe 400.
+- Logging estándar (`logging.basicConfig`) con el nivel de `LOG_LEVEL`.
+
+---|---|---|
 | `StockError` | 400 | Stock insuficiente o variante no encontrada |
 | `CajaError` | 400 | No hay caja abierta, o ya existe una abierta |
 
@@ -126,7 +184,7 @@ Definidos en `main.py`:
 - **Motor:** PostgreSQL 17
 
 ### ⚠️ RLS
-Todas las tablas tienen **RLS deshabilitado**. La seguridad recae en el JWT validado por la API.
+Todas las tablas tienen **RLS habilitado sin políticas**: solo la clave secreta del backend (que omite RLS) puede leer o escribir. La autorización recae en el JWT validado por la API.
 
 ### Tablas
 
@@ -306,7 +364,7 @@ Todas las tablas tienen **RLS deshabilitado**. La seguridad recae en el JWT vali
 
 ### Base URL: `http://127.0.0.1:8000/api/v1`
 
-Todos los endpoints (salvo `GET /`, health) requieren `Authorization: Bearer <supabase_jwt>`. En las tablas, **Auth** indica: ✅ = sesión válida, 🔒 = solo admin (`RoleChecker(["admin"])`).
+Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requieren `Authorization: Bearer <supabase_jwt>`. En las tablas, **Auth** indica: ✅ = sesión válida, 🔒 = solo admin (`RoleChecker(["admin"])`).
 
 ---
 
@@ -480,11 +538,11 @@ Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
 | GET | `/marcas` | ✅ | Lista marcas ordenadas por nombre |
-| POST | `/marcas` | ✅ | Crea una marca. 400 si falla el insert |
+| POST | `/marcas` | ✅ | Crea una marca. Los errores de base se mapean globalmente (p. ej. 409 si viola una restricción única) |
 | PATCH | `/marcas/{marca_id}` | ✅ | Actualiza una marca. 404 si no existe |
 | DELETE | `/marcas/{marca_id}` | ✅ | Elimina una marca. 404 si no existe, 400 si hay productos con esa `marca_id` |
 | GET | `/categorias` | ✅ | Lista categorías ordenadas por nombre |
-| POST | `/categorias` | ✅ | Crea una categoría. 400 si falla el insert |
+| POST | `/categorias` | ✅ | Crea una categoría. Los errores de base se mapean globalmente (p. ej. 409 si viola una restricción única) |
 | PATCH | `/categorias/{categoria_id}` | ✅ | Actualiza una categoría. 404 si no existe |
 | DELETE | `/categorias/{categoria_id}` | ✅ | Elimina una categoría. 404 si no existe, 400 si tiene productos en `producto_categorias` |
 
@@ -550,7 +608,19 @@ Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY
 uvicorn app.main:app --reload
 # → http://127.0.0.1:8000
 # → Docs: http://127.0.0.1:8000/docs
+
+# Instalar dependencias (ejecución + desarrollo)
+pip install -r requirements-dev.txt
+
+# Tests (no usan la red ni requieren un .env real)
+pytest -q
+
+# Lint
+ruff check .
+ruff check --fix .   # aplica solo los arreglos seguros
 ```
+
+CI (`.github/workflows/ci.yml`) ejecuta `ruff check .` y `pytest -q` en cada push y pull request.
 
 ---
 
@@ -562,3 +632,5 @@ uvicorn app.main:app --reload
 4. **`model_dump(exclude_unset=True)`** en Updates para solo enviar los campos que el cliente mandó.
 5. **`mode='json'`** en la creación de variantes para serializar UUID4 como string.
 6. **Errores de negocio** se lanzan como `StockError` o `CajaError` y son capturados globalmente en `main.py`.
+7. **Sin fugas de detalles internos:** no devolver `str(e)` de excepciones no controladas; ver "Health y manejo de errores".
+8. **TDD:** todo comportamiento nuevo lleva su test en `tests/` (los servicios o el cliente `supabase` se reemplazan con mocks; `get_current_user` con `app.dependency_overrides`).
