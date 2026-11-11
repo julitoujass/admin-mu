@@ -8,12 +8,21 @@ os.environ["ENVIRONMENT"] = "test"
 os.environ["CORS_ORIGINS"] = "http://localhost:3000, https://pos.example.com"
 os.environ["LOG_LEVEL"] = "WARNING"
 
+from unittest.mock import MagicMock  # noqa: E402
+
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.api import auth_deps  # noqa: E402
 from app.api.auth_deps import AppUser, get_current_user  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services import log_service  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_audit_log_io(monkeypatch):
+    """The audit log runs as a background task; keep it away from the network."""
+    monkeypatch.setattr(log_service, "supabase", MagicMock())
 
 
 @pytest.fixture

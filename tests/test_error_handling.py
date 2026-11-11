@@ -24,6 +24,7 @@ def api_error(code):
         ("23503", 409, "Conflicto: el registro está referenciado por otros datos"),
         ("PGRST116", 404, "Recurso no encontrado"),
         ("22P02", 400, "Dato inválido"),
+        ("23514", 400, "Dato fuera de rango"),
         ("XX000", 500, "Error interno del servidor"),
     ],
 )
@@ -35,6 +36,31 @@ def test_api_error_is_mapped_by_code(auth_client, monkeypatch, code, status, det
     assert response.status_code == status
     assert response.json() == {"detail": detail}
     assert "internal-detail" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("code", "status"),
+    [("MU001", 400), ("MU002", 409), ("MU003", 400), ("MU004", 404), ("MU005", 409)],
+)
+def test_database_business_error_keeps_its_own_message(auth_client, monkeypatch, code, status):
+    message = "Stock insuficiente para la variante REM-001"
+    error = APIError({"code": code, "message": message, "details": SECRET, "hint": None})
+    monkeypatch.setattr(CatalogoService, "get_marcas", raiser(error))
+
+    response = auth_client.get("/api/v1/catalogos/marcas")
+
+    assert response.status_code == status
+    assert response.json() == {"detail": message}
+    assert "internal-detail" not in response.text
+
+
+def test_unknown_mu_code_is_not_trusted(auth_client, monkeypatch):
+    monkeypatch.setattr(CatalogoService, "get_marcas", raiser(api_error("MU999")))
+
+    response = auth_client.get("/api/v1/catalogos/marcas")
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Error interno del servidor"}
 
 
 def test_duplicate_on_create_is_a_conflict(auth_client, monkeypatch):

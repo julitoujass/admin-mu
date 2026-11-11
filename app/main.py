@@ -24,6 +24,17 @@ API_ERROR_MAP = {
     "23503": (409, "Conflicto: el registro está referenciado por otros datos"),
     "PGRST116": (404, "Recurso no encontrado"),
     "22P02": (400, "Dato inválido"),
+    "23514": (400, "Dato fuera de rango"),
+}
+
+# Custom codes raised by our own database functions (crear_venta, cerrar_caja, ...).
+# Their message is written by us in Spanish, so it is safe to return as `detail`.
+DB_BUSINESS_ERROR_STATUS = {
+    "MU001": 400,  # no open cash session
+    "MU002": 409,  # insufficient stock / stock would go negative
+    "MU003": 400,  # invalid input
+    "MU004": 404,  # not found
+    "MU005": 409,  # cash session already closed
 }
 
 app = FastAPI(title="Uniforms POS API", version="1.0.0")
@@ -49,15 +60,19 @@ async def stock_exception_handler(request: Request, exc: StockError):
 @app.exception_handler(CajaError)
 async def caja_exception_handler(request: Request, exc: CajaError):
     return JSONResponse(
-        status_code=400,
+        status_code=exc.status_code,
         content={"detail": exc.message},
     )
 
 
 @app.exception_handler(APIError)
 async def api_error_handler(request: Request, exc: APIError):
-    # The real database error is only logged; the client gets a fixed message.
-    status_code, detail = API_ERROR_MAP.get(exc.code, (500, INTERNAL_ERROR_DETAIL))
+    if exc.code in DB_BUSINESS_ERROR_STATUS and exc.message:
+        # Business rule enforced inside the database: its message is ours.
+        status_code, detail = DB_BUSINESS_ERROR_STATUS[exc.code], exc.message
+    else:
+        # The real database error is only logged; the client gets a fixed message.
+        status_code, detail = API_ERROR_MAP.get(exc.code, (500, INTERNAL_ERROR_DETAIL))
     log = logger.error if status_code >= 500 else logger.warning
     log(
         "Database error on %s %s: code=%s message=%s details=%s",
