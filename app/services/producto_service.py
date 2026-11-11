@@ -1,6 +1,7 @@
 from app.core.supabase import supabase
 from app.schemas.productos import ProductCreate, VariantCreate, StockUpdate, ProductUpdate, VariantUpdate
 from app.core.exceptions import StockError
+from datetime import datetime, timezone
 
 class ProductService:
     @staticmethod
@@ -38,24 +39,32 @@ class ProductService:
         if not response.data:
             return None
         return response.data[0]
-
     @staticmethod
     def update_stock(update: StockUpdate):
         variant_id = str(update.variante_id)
         
         # Get current stock
-        res = supabase.table("producto_variantes").select("stock_actual").eq("id", variant_id).single().execute()
+        res = supabase.table("producto_variantes").select("stock_actual, producto_id").eq("id", variant_id).single().execute()
         if not res.data:
             raise StockError("Variant not found")
         
-        current_stock = res.data["stock_actual"]
+        current_stock = res.data.get("stock_actual") or 0
         new_stock = current_stock + update.cantidad
         
         if new_stock < 0:
              raise StockError("Stock cannot be negative")
 
-        # Update stock
-        res_update = supabase.table("producto_variantes").update({"stock_actual": new_stock}).eq("id", variant_id).execute()
+        # Update stock and variant updated_at
+        now_iso = datetime.now(timezone.utc).isoformat()
+        res_update = supabase.table("producto_variantes").update({
+            "stock_actual": new_stock, 
+            "updated_at": now_iso
+        }).eq("id", variant_id).execute()
+        
+        # Also touch the product's updated_at
+        producto_id = res.data.get("producto_id")
+        if producto_id:
+            supabase.table("productos").update({"updated_at": now_iso}).eq("id", producto_id).execute()
         
         return res_update.data[0]
 
@@ -76,3 +85,35 @@ class ProductService:
         product_res = supabase.table("productos").select("*, variantes:producto_variantes(*)").eq("id", product_id).single().execute()
         
         return product_res.data
+
+    @staticmethod
+    def delete_variant(variant_id: str) -> bool:
+        """Elimina una variante si no tiene ventas asociadas."""
+        # Verificar si la variante tiene ventas asociadas
+        sales_check = supabase.table("venta_detalle").select("id").eq("variante_id", variant_id).limit(1).execute()
+        if sales_check.data:
+            raise ValueError("No se puede eliminar una variante que tiene ventas registradas")
+        
+        res = supabase.table("producto_variantes").delete().eq("id", variant_id).execute()
+        return bool(res.data)
+
+    @staticmethod
+    def delete_product(product_id: str) -> bool:
+        """Elimina un producto si no tiene variantes con ventas asociadas."""
+        # Obtener variantes del producto
+        variants_res = supabase.table("producto_variantes").select("id").eq("producto_id", product_id).execute()
+        variant_ids = [v["id"] for v in (variants_res.data or [])]
+        
+        if variant_ids:
+            # Verificar si alguna variante tiene ventas
+            sales_check = supabase.table("venta_detalle").select("id").in_("variante_id", variant_ids).limit(1).execute()
+            if sales_check.data:
+                raise ValueError("No se puede eliminar un producto que tiene ventas registradas")
+            # Eliminar variantes primero
+            supabase.table("producto_variantes").delete().eq("producto_id", product_id).execute()
+        
+        # Eliminar categorias asociadas
+        supabase.table("producto_categorias").delete().eq("producto_id", product_id).execute()
+
+        res = supabase.table("productos").delete().eq("id", product_id).execute()
+        return bool(res.data)

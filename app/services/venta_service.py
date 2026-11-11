@@ -33,22 +33,28 @@ class VentaService:
                 "variante_id": str(item.variante_id),
                 "cantidad": item.cantidad,
                 "precio_unitario": item.precio_unitario,
-                "costo_unitario": variant.get("precio_costo", 0),
-                "subtotal": subtotal
+                "costo_unitario": variant.get("precio_costo", 0)
             })
 
-        # 3. Insert Venta
+        # 3. Calcular total_costo
+        total_costo = sum(
+            (item_d["costo_unitario"] or 0) * item_d["cantidad"]
+            for item_d in items_data
+        )
+
+        # 4. Insert Venta
         venta_data = {
             "usuario_id": usuario_id,
             "sesion_caja": sesion["id"],
             "total": total,
+            "total_costo": total_costo,
             "metodo_pago": venta.metodo_pago,
             "cliente_id": str(venta.cliente_id) if venta.cliente_id else None
         }
         res_venta = supabase.table("ventas").insert(venta_data).execute()
         venta_id = res_venta.data[0]["id"]
 
-        # 4. Insert Items & Update Stock
+        # 5. Insert Items & Update Stock
         for item_data in items_data:
             item_data["venta_id"] = venta_id
             supabase.table("venta_detalle").insert(item_data).execute()

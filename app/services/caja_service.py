@@ -5,8 +5,9 @@ from uuid import UUID
 
 class CajaService:
     @staticmethod
-    def get_sesion_activa(usuario_id: str):
-        res = supabase.table("sesiones_caja").select("*").eq("usuario_id", usuario_id).eq("estado", "abierta").execute()
+    def get_sesion_activa(usuario_id: str = None):
+        # Global register (ignoring usuario_id parameter constraint)
+        res = supabase.table("sesiones_caja").select("*").eq("estado", "abierta").execute()
         # Return first item if exists, else None
         if res.data and len(res.data) > 0:
             return res.data[0]
@@ -42,7 +43,7 @@ class CajaService:
             "monto": datos.monto,
             "motivo": datos.motivo
         }
-        res = supabase.table("movimientos_caja").insert(movimiento).select().execute()
+        res = supabase.table("movimientos_caja").insert(movimiento).execute()
         return res.data[0]
 
     @staticmethod
@@ -67,4 +68,21 @@ class CajaService:
             "p_observaciones": datos.observaciones
         }
         res = supabase.rpc("finalizar_cierre_caja", params).execute()
+        
+        # Unwrap list if RPC returns an array
+        if isinstance(res.data, list) and len(res.data) > 0:
+            return res.data[0]
+        elif isinstance(res.data, list):
+            return {**sesion, "estado": "cerrada"}
+        return res.data
+
+    @staticmethod
+    def obtener_sesiones():
+        res = supabase.table("sesiones_caja").select("*").order("fecha_apertura", desc=True).execute()
+        return res.data
+
+    @staticmethod
+    def obtener_movimientos_por_sesion(sesion_id: str):
+        # Asumiendo que la columna de fecha de creación en db es 'creado_en' basado en el schema
+        res = supabase.table("movimientos_caja").select("*").eq("sesion_id", sesion_id).order("creado_en", desc=True).execute()
         return res.data
