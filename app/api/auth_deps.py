@@ -1,8 +1,13 @@
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.core.supabase import supabase
-from typing import Annotated, List
+import logging
 import time
+from typing import Annotated, List
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from app.core.supabase import supabase
+
+logger = logging.getLogger(__name__)
 
 class AppUser:
     def __init__(self, id: str, email: str, rol: str):
@@ -11,6 +16,14 @@ class AppUser:
         self.rol = rol
 
 security = HTTPBearer()
+
+
+def _credentials_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="No se pudieron validar las credenciales",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 _TOKEN_CACHE = {}
 CACHE_TTL = 60 * 5  # 5 minutos
@@ -30,31 +43,26 @@ def get_current_user(credentials: Annotated[HTTPAuthorizationCredentials, Depend
     try:
         # Supabase client 'get_user' verifies the token with the Supabase Auth server
         user = supabase.auth.get_user(token)
-        if not user:
-             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        # Attach role from perfiles
-        rol = "empleado"
-        try:
-            profile_res = supabase.table("perfiles").select("roles(nombre)").eq("id", user.user.id).single().execute()
-            if profile_res.data and profile_res.data.get("roles"):
-                rol = profile_res.data["roles"]["nombre"]
-        except Exception:
-            pass
+    except Exception:
+        # Never echo the provider error to the client; it is only logged.
+        logger.warning("Token validation failed", exc_info=True)
+        raise _credentials_error() from None
 
-        app_user = AppUser(id=user.user.id, email=user.user.email, rol=rol)
-        _TOKEN_CACHE[token] = (app_user, now + CACHE_TTL)
-        return app_user
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Could not validate credentials: {str(e)}",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    if not user or not getattr(user, "user", None):
+        raise _credentials_error()
+
+    # Attach role from perfiles
+    rol = "empleado"
+    try:
+        profile_res = supabase.table("perfiles").select("roles(nombre)").eq("id", user.user.id).single().execute()
+        if profile_res.data and profile_res.data.get("roles"):
+            rol = profile_res.data["roles"]["nombre"]
+    except Exception:
+        pass
+
+    app_user = AppUser(id=user.user.id, email=user.user.email, rol=rol)
+    _TOKEN_CACHE[token] = (app_user, now + CACHE_TTL)
+    return app_user
 
 class RoleChecker:
     def __init__(self, allowed_roles: List[str]):

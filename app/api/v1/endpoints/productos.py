@@ -1,9 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from app.schemas.productos import ProductResponse, ProductCreate, VariantCreate, VariantResponse, StockUpdate, ProductUpdate, VariantUpdate
-from app.services.producto_service import ProductService
-from app.services.log_service import LogService
-from app.api.auth_deps import get_current_user, RoleChecker
 from typing import List, Optional
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+
+from app.api.auth_deps import RoleChecker, get_current_user
+from app.schemas.productos import (
+    ProductCreate,
+    ProductResponse,
+    ProductUpdate,
+    StockUpdate,
+    VariantCreate,
+    VariantResponse,
+    VariantUpdate,
+)
+from app.services.log_service import LogService
+from app.services.producto_service import ProductService
 
 router = APIRouter()
 
@@ -91,7 +101,7 @@ def delete_variant(id: str, background_tasks: BackgroundTasks, current_user = De
         )
         return {"ok": True}
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e
 
 @router.patch("/{id}", response_model=ProductResponse)
 def update_product(id: str, product_update: ProductUpdate, background_tasks: BackgroundTasks, current_user = Depends(get_current_user)):
@@ -124,4 +134,4 @@ def delete_product(id: str, background_tasks: BackgroundTasks, current_user = De
         )
         return {"ok": True}
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e

@@ -1,14 +1,19 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import JSONResponse
+
 from app.api.auth_deps import get_current_user
-from app.schemas.catalogos import MarcaCreate, MarcaUpdate, MarcaResponse, CategoriaCreate, CategoriaUpdate, CategoriaResponse
+from app.schemas.catalogos import (
+    CategoriaCreate,
+    CategoriaResponse,
+    CategoriaUpdate,
+    MarcaCreate,
+    MarcaResponse,
+    MarcaUpdate,
+)
 from app.services.catalogo_service import CatalogoService
 from app.services.log_service import LogService
-from fastapi.responses import JSONResponse
-from app.api.auth_deps import get_current_user
-from app.schemas.catalogos import MarcaCreate, MarcaUpdate, MarcaResponse, CategoriaCreate, CategoriaUpdate, CategoriaResponse
-from app.services.catalogo_service import CatalogoService
 
 router = APIRouter()
 
@@ -20,20 +25,17 @@ def get_marcas(_=Depends(get_current_user)):
 
 @router.post("/marcas", response_model=MarcaResponse)
 def create_marca(marca: MarcaCreate, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
-    try:
-        result = CatalogoService.create_marca(marca)
-        background_tasks.add_task(
-            LogService.registrar_log,
-            usuario_id=current_user.id,
-            evento="CREATE",
-            entidad="marcas",
-            entidad_id=str(result["id"]),
-            payload_enviado=marca.model_dump(),
-            respuesta_recibida=result
-        )
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    result = CatalogoService.create_marca(marca)
+    background_tasks.add_task(
+        LogService.registrar_log,
+        usuario_id=current_user.id,
+        evento="CREATE",
+        entidad="marcas",
+        entidad_id=str(result["id"]),
+        payload_enviado=marca.model_dump(),
+        respuesta_recibida=result
+    )
+    return result
 
 @router.patch("/marcas/{marca_id}", response_model=MarcaResponse)
 def update_marca(marca_id: int, marca: MarcaUpdate, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
@@ -66,9 +68,7 @@ def delete_marca(marca_id: int, background_tasks: BackgroundTasks, current_user=
         )
         return JSONResponse(content={"message": "Marca eliminada correctamente"})
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 # ============ CATEGORIAS ============
 
@@ -78,20 +78,17 @@ def get_categorias(_=Depends(get_current_user)):
 
 @router.post("/categorias", response_model=CategoriaResponse)
 def create_categoria(categoria: CategoriaCreate, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
-    try:
-        result = CatalogoService.create_categoria(categoria)
-        background_tasks.add_task(
-            LogService.registrar_log,
-            usuario_id=current_user.id,
-            evento="CREATE",
-            entidad="categorias",
-            entidad_id=str(result["id"]),
-            payload_enviado=categoria.model_dump(),
-            respuesta_recibida=result
-        )
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    result = CatalogoService.create_categoria(categoria)
+    background_tasks.add_task(
+        LogService.registrar_log,
+        usuario_id=current_user.id,
+        evento="CREATE",
+        entidad="categorias",
+        entidad_id=str(result["id"]),
+        payload_enviado=categoria.model_dump(),
+        respuesta_recibida=result
+    )
+    return result
 
 @router.patch("/categorias/{categoria_id}", response_model=CategoriaResponse)
 def update_categoria(categoria_id: int, categoria: CategoriaUpdate, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
@@ -124,6 +121,4 @@ def delete_categoria(categoria_id: int, background_tasks: BackgroundTasks, curre
         )
         return JSONResponse(content={"message": "Categoría eliminada correctamente"})
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e)) from e
