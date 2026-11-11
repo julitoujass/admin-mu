@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from app.api.auth_deps import get_current_user
 from app.schemas.clientes import ClienteCreate, ClienteResponse, ClienteUpdate
@@ -10,8 +10,14 @@ from app.services.log_service import LogService
 router = APIRouter()
 
 @router.get("/", response_model=List[ClienteResponse])
-def get_clientes(query: Optional[str] = None, current_user = Depends(get_current_user)):
-    return ClienteService.get_clientes(query)
+def get_clientes(
+    query: Optional[str] = None,
+    # Default 1000: the POS client selector filters this list in the browser.
+    limit: int = Query(1000, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    current_user = Depends(get_current_user),
+):
+    return ClienteService.get_clientes(query, limit, offset)
 
 @router.post("/", response_model=ClienteResponse)
 def create_cliente(cliente: ClienteCreate, background_tasks: BackgroundTasks, current_user = Depends(get_current_user)):
