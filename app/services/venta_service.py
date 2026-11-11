@@ -1,76 +1,47 @@
+from datetime import datetime
 
-from app.core.exceptions import CajaError, StockError
+from app.core.db_utils import fetch_all, single_row
 from app.core.supabase import supabase
+from app.core.timeutils import local_day_bounds_utc, now_argentina
 from app.schemas.ventas import VentaCreate
-from app.services.caja_service import CajaService
+
+# Only what the POS needs; cost columns (total_costo) are never exposed.
+VENTA_PUBLIC_COLUMNS = "id, created_at, total, metodo_pago"
+
+
+def _now_local() -> datetime:
+    return now_argentina()
 
 
 class VentaService:
     @staticmethod
-    def crear_venta(usuario_id: str, venta: VentaCreate):
-        # 1. Check open session
-        sesion = CajaService.get_sesion_activa(usuario_id)
-        if not sesion:
-            raise CajaError("No hay sesión de caja abierta.")
+    def crear_venta(usuario_id: str, venta: VentaCreate, idempotency_key: str | None = None):
+        """Create a sale atomically through the `crear_venta` database function.
 
-        # 2. Validate Stock & Calculate Total
-        total = 0
-        items_data = []
-        
-        for item in venta.items:
-            # Check stock
-            res = supabase.table("producto_variantes").select("stock_actual, precio_costo").eq("id", str(item.variante_id)).single().execute()
-            if not res.data:
-                raise StockError(f"Variante {item.variante_id} no encontrada")
-            
-            variant = res.data
-            if variant["stock_actual"] < item.cantidad:
-                raise StockError(f"Stock insuficiente para variante {item.variante_id}")
-            
-            subtotal = item.cantidad * item.precio_unitario
-            total += subtotal
-            
-            items_data.append({
-                "variante_id": str(item.variante_id),
-                "cantidad": item.cantidad,
-                "precio_unitario": item.precio_unitario,
-                "costo_unitario": variant.get("precio_costo", 0)
-            })
-
-        # 3. Calcular total_costo
-        total_costo = sum(
-            (item_d["costo_unitario"] or 0) * item_d["cantidad"]
-            for item_d in items_data
-        )
-
-        # 4. Insert Venta
-        venta_data = {
-            "usuario_id": usuario_id,
-            "sesion_caja": sesion["id"],
-            "total": total,
-            "total_costo": total_costo,
-            "metodo_pago": venta.metodo_pago,
-            "cliente_id": str(venta.cliente_id) if venta.cliente_id else None
+        The function locks the rows, reads prices and costs from the database,
+        decrements stock and writes the detail in one transaction. Only variant
+        ids and quantities are sent: client-side prices and totals are not trusted.
+        Business failures come back as APIError with an MU00x code (see main.py).
+        """
+        params = {
+            "p_usuario_id": str(usuario_id),
+            "p_metodo_pago": venta.metodo_pago,
+            "p_items": [{"variante_id": str(item.variante_id), "cantidad": item.cantidad} for item in venta.items],
+            "p_cliente_id": str(venta.cliente_id) if venta.cliente_id else None,
+            "p_idempotency_key": idempotency_key,
         }
-        res_venta = supabase.table("ventas").insert(venta_data).execute()
-        venta_id = res_venta.data[0]["id"]
-
-        # 5. Insert Items & Update Stock
-        for item_data in items_data:
-            item_data["venta_id"] = venta_id
-            supabase.table("venta_detalle").insert(item_data).execute()
-            
-            # Update stock
-            current_variant = supabase.table("producto_variantes").select("stock_actual").eq("id", item_data["variante_id"]).single().execute()
-            new_stock = current_variant.data["stock_actual"] - item_data["cantidad"]
-            supabase.table("producto_variantes").update({"stock_actual": new_stock}).eq("id", item_data["variante_id"]).execute()
-
-        return res_venta.data[0]
+        res = supabase.rpc("crear_venta", params).execute()
+        return single_row(res.data)
 
     @staticmethod
     def get_ventas_hoy():
-        from datetime import datetime
-        today = datetime.now().date().isoformat()
-        # Filter by created_at >= today (start of day)
-        res = supabase.table("ventas").select("*").gte("created_at", today).execute()
-        return res.data
+        """Sales of the current Argentina local day, oldest first."""
+        start, end = local_day_bounds_utc(_now_local())
+        return fetch_all(
+            lambda: supabase.table("ventas")
+            .select(VENTA_PUBLIC_COLUMNS)
+            .gte("created_at", start)
+            .lt("created_at", end)
+            .order("created_at")
+            .order("id")
+        )
