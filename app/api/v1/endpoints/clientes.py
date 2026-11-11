@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from typing import List, Optional
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+
+from app.api.auth_deps import get_current_user
 from app.schemas.clientes import ClienteCreate, ClienteResponse, ClienteUpdate
 from app.services.cliente_service import ClienteService
 from app.services.log_service import LogService
-from app.api.auth_deps import get_current_user
-from typing import List, Optional
 
 router = APIRouter()
 

@@ -1,7 +1,9 @@
-from app.core.supabase import supabase
-from datetime import date
-from typing import Optional, Dict, Any, List
 from collections import defaultdict
+from datetime import date
+from typing import Any, Dict, List, Optional
+
+from app.core.supabase import supabase
+
 
 class ReporteService:
     @staticmethod

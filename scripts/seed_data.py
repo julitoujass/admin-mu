@@ -1,9 +1,11 @@
-import sys
 import os
+import sys
+
 sys.path.append(os.getcwd())
 
+
 from app.core.supabase import supabase
-import uuid
+
 
 def seed():
     print("Seeding data...")

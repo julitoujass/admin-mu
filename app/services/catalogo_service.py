@@ -1,5 +1,6 @@
 from app.core.supabase import supabase
-from app.schemas.catalogos import MarcaCreate, MarcaUpdate, CategoriaCreate, CategoriaUpdate
+from app.schemas.catalogos import CategoriaCreate, CategoriaUpdate, MarcaCreate, MarcaUpdate
+
 
 class CatalogoService:
     # ============ MARCAS ============

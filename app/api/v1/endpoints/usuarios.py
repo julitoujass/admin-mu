@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
-from app.schemas.usuarios import UsuarioResponse, UsuarioRoleUpdate, RoleResponse
-from app.services.usuario_service import UsuarioService
-from app.api.auth_deps import RoleChecker, get_current_user
 from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.api.auth_deps import RoleChecker, get_current_user
+from app.schemas.usuarios import RoleResponse, UsuarioResponse, UsuarioRoleUpdate
+from app.services.usuario_service import UsuarioService
 
 router = APIRouter()
 

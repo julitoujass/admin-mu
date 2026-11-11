@@ -1,6 +1,8 @@
-from pydantic import BaseModel, UUID4
-from typing import Optional
 from datetime import datetime
+from typing import Optional
+
+from pydantic import UUID4, BaseModel
+
 
 class RoleResponse(BaseModel):
     id: int

@@ -1,6 +1,7 @@
 from app.core.supabase import supabase
 from app.schemas.usuarios import UsuarioRoleUpdate
 
+
 class UsuarioService:
     @staticmethod
     def get_usuarios():

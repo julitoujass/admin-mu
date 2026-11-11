@@ -1,6 +1,7 @@
 from app.core.supabase import supabase
 from app.schemas.clientes import ClienteCreate, ClienteUpdate
 
+
 class ClienteService:
     @staticmethod
     def get_clientes(query: str | None = None):

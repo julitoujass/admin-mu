@@ -1,8 +1,9 @@
+
+from app.core.exceptions import CajaError, StockError
 from app.core.supabase import supabase
 from app.schemas.ventas import VentaCreate
 from app.services.caja_service import CajaService
-from app.core.exceptions import StockError, CajaError
-from uuid import UUID
+
 
 class VentaService:
     @staticmethod
@@ -68,7 +69,7 @@ class VentaService:
 
     @staticmethod
     def get_ventas_hoy():
-        from datetime import datetime, timezone
+        from datetime import datetime
         today = datetime.now().date().isoformat()
         # Filter by created_at >= today (start of day)
         res = supabase.table("ventas").select("*").gte("created_at", today).execute()

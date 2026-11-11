@@ -1,7 +1,9 @@
-from app.core.supabase import supabase
-from app.schemas.productos import ProductCreate, VariantCreate, StockUpdate, ProductUpdate, VariantUpdate
-from app.core.exceptions import StockError
 from datetime import datetime, timezone
+
+from app.core.exceptions import StockError
+from app.core.supabase import supabase
+from app.schemas.productos import ProductCreate, ProductUpdate, StockUpdate, VariantCreate, VariantUpdate
+
 
 class ProductService:
     @staticmethod

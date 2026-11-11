@@ -1,6 +1,8 @@
-from pydantic import BaseModel, Field, UUID4
-from typing import Optional, Literal, List
 from datetime import datetime
+from typing import Literal, Optional
+
+from pydantic import UUID4, BaseModel, Field
+
 
 class CajaApertura(BaseModel):
     monto_apertura: float

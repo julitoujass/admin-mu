@@ -1,6 +1,8 @@
-from pydantic import BaseModel, Field, UUID4
-from typing import Optional, List
 from datetime import datetime
+from typing import List, Optional
+
+from pydantic import UUID4, BaseModel
+
 
 class VariantBase(BaseModel):
     sku: Optional[str] = None

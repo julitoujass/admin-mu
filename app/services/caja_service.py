@@ -1,7 +1,8 @@
-from app.core.supabase import supabase
-from app.schemas.caja import CajaApertura, CajaMovimiento, CajaCierre
+
 from app.core.exceptions import CajaError
-from uuid import UUID
+from app.core.supabase import supabase
+from app.schemas.caja import CajaApertura, CajaCierre, CajaMovimiento
+
 
 class CajaService:
     @staticmethod

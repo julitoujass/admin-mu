@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, Query
-from app.api.auth_deps import get_current_user, RoleChecker
-from app.services.reporte_service import ReporteService
-from app.schemas.reportes import VentasTotalesReporte, ProductoTopReporte, CajaResumenReporte
-from typing import List, Optional
 from datetime import date
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, Query
+
+from app.api.auth_deps import RoleChecker
+from app.schemas.reportes import CajaResumenReporte, ProductoTopReporte, VentasTotalesReporte
+from app.services.reporte_service import ReporteService
 
 router = APIRouter()
 

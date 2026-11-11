@@ -1,5 +1,7 @@
-from app.core.supabase import supabase
 import logging
+
+from app.core.supabase import supabase
+
 
 class LogService:
     @staticmethod

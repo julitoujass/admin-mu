@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
-from app.schemas.ventas import VentaCreate, VentaResponse
-from app.services.venta_service import VentaService
-from app.services.log_service import LogService
-from app.api.auth_deps import get_current_user
 from typing import List
+
+from fastapi import APIRouter, BackgroundTasks, Depends
+
+from app.api.auth_deps import get_current_user
+from app.schemas.ventas import VentaCreate, VentaResponse
+from app.services.log_service import LogService
+from app.services.venta_service import VentaService
 
 router = APIRouter()
 

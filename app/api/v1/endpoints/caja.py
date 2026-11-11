@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
-from app.schemas.caja import SesionCajaResponse, CajaApertura, CajaMovimiento, CajaCierre, CajaMovimientoResponse
+from typing import List, Optional
+
+from fastapi import APIRouter, BackgroundTasks, Depends
+
+from app.api.auth_deps import get_current_user
+from app.schemas.caja import CajaApertura, CajaCierre, CajaMovimiento, CajaMovimientoResponse, SesionCajaResponse
 from app.services.caja_service import CajaService
 from app.services.log_service import LogService
-from app.api.auth_deps import get_current_user
-from typing import Optional, List
 
 router = APIRouter()
 

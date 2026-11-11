@@ -1,9 +1,12 @@
-import sys
 import os
+import sys
+
 sys.path.append(os.getcwd())
 
-from app.core.supabase import supabase
 import getpass
+
+from app.core.supabase import supabase
+
 
 def get_token():
     email = input("Email: ")
