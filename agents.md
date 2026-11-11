@@ -1,7 +1,7 @@
 # agents.md — Contexto del Backend `admin-mu`
 
 > **⚠️ Este archivo debe actualizarse cada vez que se modifique la API.**
-> Última actualización: 2026-11-11 — Fase 3 (autorización): matriz de roles, usuarios inactivos, cache de tokens acotado, costos ocultos para no-admin, gestión segura de usuarios e ids UUID validados
+> Última actualización: 2026-11-11 — Fase 4 (refactor): helper de auditoría con eventos normalizados, `StockError` eliminado, mensajes 404 en español, respuestas tipadas y export de OpenAPI
 
 ---
 
@@ -69,7 +69,7 @@ app/
 │   ├── supabase.py                # Singleton del cliente Supabase
 │   ├── db_utils.py                # fetch_all (paginado interno con .range()) y single_row (resultado de RPC)
 │   ├── timeutils.py               # Zona horaria de negocio (America/Argentina/Buenos_Aires) y límites del día local
-│   └── exceptions.py              # Excepciones custom: StockError (legado), CajaError y UsuarioError (con status_code)
+│   └── exceptions.py              # Excepciones custom: CajaError y UsuarioError (con status_code)
 ├── api/
 │   ├── auth_deps.py               # get_current_user (token + rol + activo), RoleChecker, TTLCache e invalidate_user
 │   └── v1/
@@ -88,6 +88,7 @@ app/
 │   ├── clientes.py                # Pydantic models: ClienteCreate/Update/Response
 │   ├── reportes.py                # Pydantic models: VentasTotalesReporte, ProductoTopReporte, CajaResumenReporte
 │   ├── catalogos.py               # Pydantic models: MarcaCreate/Update/Response, CategoriaCreate/Update/Response
+│   ├── common.py                  # Respuestas genéricas: OkResponse (`{"ok": true}`) y MessageResponse (`{"message": ...}`)
 │   └── usuarios.py                # Pydantic models: RoleResponse, UsuarioResponse, UsuarioRoleUpdate, UsuarioActivoUpdate, MeResponse
 ├── services/
 │   ├── producto_service.py        # Lógica de negocio de productos y variantes
@@ -97,8 +98,10 @@ app/
 │   ├── reporte_service.py         # Reportes: delega en las funciones SQL reporte_*
 │   ├── catalogo_service.py        # CRUD de marcas y categorías
 │   ├── usuario_service.py         # Lectura de perfiles/roles, cambio de rol y activación (con reglas de seguridad)
+│   ├── audit.py                   # `audit()`: helper que encola el log de auditoría con eventos normalizados (`AuditEvent`)
 │   └── log_service.py             # Auditoría: inserta en tabla `logs` (BackgroundTask)
 scripts/
+├── export_openapi.py              # Genera `openapi.json` (raíz) desde `app.openapi()`
 ├── seed_data.py                   # Carga de datos de prueba
 └── get_token.py                   # Obtiene un JWT de Supabase para probar la API
 tests/
@@ -115,8 +118,12 @@ tests/
 ├── test_caja.py                   # Apertura (usuario del token, 409), cierre (cerrar_caja), resumen, movimientos, paginado
 ├── test_productos.py              # ajustar_stock, validaciones de productos/variantes, paginado interno del catálogo
 ├── test_clientes.py               # Validaciones, saneado de búsqueda, paginado
+├── test_audit.py                  # Helper `audit()`: serialización, eventos normalizados y evento en un endpoint
+├── test_responses.py              # Formas de respuesta tipadas (delete, ajuste de stock) y mensajes 404 en español
+├── test_openapi.py                # Falla si `openapi.json` no coincide con `app.openapi()`
 └── test_reportes.py               # Reportes vía RPC, límite de productos-top, solo admin
 .github/workflows/ci.yml           # CI: ruff + pytest en cada push / PR
+openapi.json                       # Esquema OpenAPI versionado (se regenera con `python scripts/export_openapi.py`)
 pyproject.toml                     # Configuración de ruff y pytest
 requirements.txt                   # Dependencias de ejecución (versiones fijadas)
 requirements-dev.txt               # requirements.txt + pytest, httpx, ruff
@@ -176,7 +183,16 @@ Los parámetros de ruta que apuntan a filas con id UUID (`productos`, `producto_
 
 ## Auditoría (`logs`)
 
-`LogService.registrar_log()` inserta un registro en la tabla `logs` (evento, entidad, entidad_id, payload, usuario_id, estado). Se ejecuta como `BackgroundTask` desde los endpoints de escritura de productos, caja, ventas, clientes, catálogos y usuarios (`UPDATE_ROL`, `UPDATE_ACTIVO` sobre `perfiles`). Si el insert falla, solo se loguea el error y no afecta la respuesta.
+Los endpoints de escritura registran la auditoría con un único helper, `audit()` (`app/services/audit.py`):
+
+```python
+audit(background_tasks, current_user, "CREATE", "productos", entidad_id=..., payload=..., respuesta=..., descripcion=...)
+```
+
+- Encola `LogService.registrar_log()` como `BackgroundTask`; ese método inserta en la tabla `logs` (evento, entidad, entidad_id, payload, usuario_id, estado). Si el insert falla, solo se loguea el error y no afecta la respuesta.
+- `payload` y `respuesta` se pasan por `jsonable_encoder`: UUID, datetime y Decimal se serializan solos, así que se puede pasar `model_dump()` o la fila de la base tal cual.
+- `evento` es un `AuditEvent` (`Literal`): `CREATE`, `UPDATE`, `DELETE`, `ADJUST_STOCK`, `OPEN_CAJA`, `CLOSE_CAJA`, `CASH_MOVEMENT`, `CREATE_SALE`, `UPDATE_ROL`, `UPDATE_ACTIVO`. El tipo de entidad va en `entidad` (tabla afectada).
+- Los eventos antiguos se renombraron: `UPDATE_STOCK` → `ADJUST_STOCK`, `APERTURA_CAJA` → `OPEN_CAJA`, `CIERRE_CAJA` → `CLOSE_CAJA`, `MOVIMIENTO_CAJA` → `CASH_MOVEMENT`, `CREATE_VENTA` → `CREATE_SALE`. El resto (`CREATE`, `UPDATE`, `DELETE`, `UPDATE_ROL`, `UPDATE_ACTIVO`) se mantiene. Las filas históricas de `logs` conservan el nombre viejo.
 
 ---
 
@@ -195,7 +211,6 @@ Definidos en `main.py`.
 
 | Excepción | HTTP Status | `detail` |
 |---|---|---|
-| `StockError` | 400 | Mensaje de negocio. Legado: ya no se lanza desde los servicios (el stock lo valida la base, ver códigos `MU00x`) |
 | `CajaError` | `exc.status_code` (400 por defecto) | Mensaje de negocio: 400 `No hay sesión de caja abierta.`, 409 `Ya existe una sesión de caja abierta.` |
 | `UsuarioError` | `exc.status_code` (400 por defecto) | Mensaje de negocio de gestión de usuarios: 404, 400 o 409 (ver Usuarios) |
 | `postgrest.APIError` código `23505` | 409 | `Conflicto: el registro ya existe` |
@@ -223,7 +238,7 @@ Un código `MU` no listado se trata como cualquier otro error desconocido (500 g
 
 **Reglas:**
 - El error real (código, mensaje y detalles de PostgREST, o el traceback) se registra con `logging` en el servidor y **nunca** se incluye en la respuesta, salvo el `message` de los códigos `MU00x` listados arriba.
-- Los endpoints no deben devolver `str(e)` de excepciones arbitrarias. Solo se usan como `detail` los mensajes de negocio propios (`ValueError` de los servicios, `StockError`, `CajaError`, `UsuarioError`); cualquier otra excepción se deja propagar a los handlers globales.
+- Los endpoints no deben devolver `str(e)` de excepciones arbitrarias. Solo se usan como `detail` los mensajes de negocio propios (`ValueError` de los servicios, `CajaError`, `UsuarioError`); cualquier otra excepción se deja propagar a los handlers globales.
 - `HTTPException` y los errores de validación (422) conservan el comportamiento estándar de FastAPI.
 - Las respuestas 500 del handler genérico las emite la capa externa de Starlette, por fuera de `CORSMiddleware`, por lo que no llevan headers CORS.
 
@@ -448,7 +463,7 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 | PATCH | `/{id}` | 🔒 | Actualiza nombre/descripción/marca de un producto |
 | POST | `/variante` | 🔒 | Crea una variante vinculada a un producto |
 | PATCH | `/variante/{id}` | 🔒 | Actualiza una variante (NO incluye stock_actual) |
-| PATCH | `/inventario/stock` | 🔒 | Ajusta el stock de una variante (suma/resta `cantidad`) vía RPC `ajustar_stock`. 404 si la variante no existe (`MU004`), 409 si el stock quedaría negativo (`MU002`) |
+| PATCH | `/inventario/stock` | 🔒 | Ajusta el stock de una variante (suma/resta `cantidad`) vía RPC `ajustar_stock`; responde la fila completa de la variante (`StockAdjustResponse`). 404 si la variante no existe (`MU004`), 409 si el stock quedaría negativo (`MU002`) |
 | DELETE | `/variante/{id}` | 🔒 | Elimina una variante. 404 si no existe, 409 si tiene ventas en `venta_detalle` |
 | DELETE | `/{id}` | 🔒 | Elimina un producto con sus variantes y vínculos en `producto_categorias`. 404 si no existe, 409 si alguna variante tiene ventas |
 
@@ -567,7 +582,7 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 2. `VentaService.crear_venta()` llama a la RPC `crear_venta` con `p_usuario_id` = usuario del token, `p_metodo_pago`, `p_items` = `[{variante_id, cantidad}]`, `p_cliente_id` y `p_idempotency_key`.
 3. La función, en una sola transacción: verifica la sesión de caja abierta, bloquea las variantes, toma `precio_venta`/`precio_costo` de la base, unifica variantes repetidas, descuenta stock, inserta `ventas` y `venta_detalle`, y devuelve la fila de `ventas`.
 4. Reintentar con la misma `Idempotency-Key` devuelve la venta original en lugar de crear otra.
-5. El endpoint registra la auditoría (`CREATE_VENTA`) como `BackgroundTask`.
+5. El endpoint registra la auditoría (`CREATE_SALE`) como `BackgroundTask`.
 
 **Errores:**
 
@@ -778,6 +793,9 @@ pytest -q
 # Lint
 ruff check .
 ruff check --fix .   # aplica solo los arreglos seguros
+
+# Regenerar openapi.json (sin red; sirven valores ficticios)
+SUPABASE_URL=https://example.supabase.co SUPABASE_KEY=sb_secret_dummy python scripts/export_openapi.py
 ```
 
 CI (`.github/workflows/ci.yml`) ejecuta `ruff check .` y `pytest -q` en cada push y pull request.
@@ -800,3 +818,7 @@ CI (`.github/workflows/ci.yml`) ejecuta `ruff check .` y `pytest -q` en cada pus
 12. **TDD:** todo comportamiento nuevo lleva su test en `tests/` (los servicios o el cliente `supabase` se reemplazan con mocks o con `tests/fakes.py::FakeSupabase`; `get_current_user` con `app.dependency_overrides`).
 13. **Autorización:** toda ruta nueva se agrega a la "Matriz de roles" y a `tests/test_authz.py`. Lo que solo puede hacer un admin usa `Depends(RoleChecker(["admin"]))`; nunca se confía en que el frontend oculte la opción.
 14. **Ids UUID en la URL:** tiparlos como `uuid.UUID` y pasar `str(id)` al servicio.
+15. **Auditoría:** toda escritura llama a `audit()` con un `AuditEvent`; no se usa `background_tasks.add_task(LogService...)` directo. Un evento nuevo se agrega al `Literal` y a esta documentación.
+16. **Respuestas tipadas:** todo endpoint declara `response_model` (también los DELETE: `OkResponse` / `MessageResponse` de `schemas/common.py`); no se devuelven dicts sueltos ni `JSONResponse` a mano.
+17. **Mensajes 404 en español** y consistentes: `Producto no encontrado`, `Variante no encontrada`, `Cliente no encontrado`, `Marca no encontrada`, `Categoría no encontrada`, `Usuario no encontrado`.
+18. **OpenAPI versionado:** al cambiar rutas o modelos, regenerar `openapi.json` con `python scripts/export_openapi.py`; `tests/test_openapi.py` falla si quedó desactualizado (así lo detecta CI).

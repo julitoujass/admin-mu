@@ -50,6 +50,9 @@ uvicorn app.main:app --reload
 ```bash
 pytest -q        # tests (no usan la red ni requieren un .env real)
 ruff check .     # lint
+
+# Regenera openapi.json (esquema versionado; sirven valores ficticios, sin red)
+SUPABASE_URL=https://example.supabase.co SUPABASE_KEY=sb_secret_dummy python scripts/export_openapi.py
 ```
 
-Los mismos comandos corren en CI (`.github/workflows/ci.yml`) en cada push y pull request.
+Un test falla si `openapi.json` quedó desactualizado respecto de la API. Los mismos comandos corren en CI (`.github/workflows/ci.yml`) en cada push y pull request.
