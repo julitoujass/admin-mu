@@ -1,0 +1,3769 @@
+{
+  "components": {
+    "schemas": {
+      "CajaApertura": {
+        "properties": {
+          "monto_apertura": {
+            "minimum": 0.0,
+            "title": "Monto Apertura",
+            "type": "number"
+          },
+          "usuario_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "deprecated": true,
+            "description": "Ignorado. El usuario se toma del token.",
+            "title": "Usuario Id"
+          }
+        },
+        "required": [
+          "monto_apertura"
+        ],
+        "title": "CajaApertura",
+        "type": "object"
+      },
+      "CajaCierre": {
+        "properties": {
+          "monto_real_efectivo": {
+            "minimum": 0.0,
+            "title": "Monto Real Efectivo",
+            "type": "number"
+          },
+          "observaciones": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observaciones"
+          }
+        },
+        "required": [
+          "monto_real_efectivo"
+        ],
+        "title": "CajaCierre",
+        "type": "object"
+      },
+      "CajaMovimiento": {
+        "properties": {
+          "monto": {
+            "exclusiveMinimum": 0.0,
+            "title": "Monto",
+            "type": "number"
+          },
+          "motivo": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Motivo",
+            "type": "string"
+          },
+          "tipo": {
+            "enum": [
+              "ingreso",
+              "egreso"
+            ],
+            "title": "Tipo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo",
+          "monto",
+          "motivo"
+        ],
+        "title": "CajaMovimiento",
+        "type": "object"
+      },
+      "CajaMovimientoResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "descripcion": {
+            "title": "Descripcion",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid4",
+            "title": "Id",
+            "type": "string"
+          },
+          "monto": {
+            "title": "Monto",
+            "type": "number"
+          },
+          "sesion_id": {
+            "format": "uuid4",
+            "title": "Sesion Id",
+            "type": "string"
+          },
+          "tipo": {
+            "enum": [
+              "ingreso",
+              "egreso"
+            ],
+            "title": "Tipo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sesion_id",
+          "tipo",
+          "monto",
+          "descripcion",
+          "created_at"
+        ],
+        "title": "CajaMovimientoResponse",
+        "type": "object"
+      },
+      "CajaResumenDiario": {
+        "properties": {
+          "diferencia_esperado_vs_real": {
+            "title": "Diferencia Esperado Vs Real",
+            "type": "number"
+          },
+          "egresos": {
+            "title": "Egresos",
+            "type": "number"
+          },
+          "fecha": {
+            "format": "date",
+            "title": "Fecha",
+            "type": "string"
+          },
+          "ingresos": {
+            "title": "Ingresos",
+            "type": "number"
+          },
+          "monto_inicial_total": {
+            "title": "Monto Inicial Total",
+            "type": "number"
+          },
+          "monto_real_efectivo_total": {
+            "title": "Monto Real Efectivo Total",
+            "type": "number"
+          },
+          "sesiones_abiertas": {
+            "title": "Sesiones Abiertas",
+            "type": "integer"
+          },
+          "ventas_efectivo": {
+            "default": 0,
+            "title": "Ventas Efectivo",
+            "type": "number"
+          }
+        },
+        "required": [
+          "fecha",
+          "sesiones_abiertas",
+          "monto_inicial_total",
+          "ingresos",
+          "egresos",
+          "monto_real_efectivo_total",
+          "diferencia_esperado_vs_real"
+        ],
+        "title": "CajaResumenDiario",
+        "type": "object"
+      },
+      "CajaResumenReporte": {
+        "properties": {
+          "diferencia_total_periodo": {
+            "title": "Diferencia Total Periodo",
+            "type": "number"
+          },
+          "resumen_diario": {
+            "items": {
+              "$ref": "#/components/schemas/CajaResumenDiario"
+            },
+            "title": "Resumen Diario",
+            "type": "array"
+          }
+        },
+        "required": [
+          "resumen_diario",
+          "diferencia_total_periodo"
+        ],
+        "title": "CajaResumenReporte",
+        "type": "object"
+      },
+      "CajaResumenResponse": {
+        "description": "Live totals of a cash session, computed by the `resumen_caja` database function.",
+        "properties": {
+          "cantidad_ventas": {
+            "title": "Cantidad Ventas",
+            "type": "integer"
+          },
+          "egresos": {
+            "title": "Egresos",
+            "type": "number"
+          },
+          "esperado_efectivo": {
+            "title": "Esperado Efectivo",
+            "type": "number"
+          },
+          "estado": {
+            "title": "Estado",
+            "type": "string"
+          },
+          "fecha_apertura": {
+            "format": "date-time",
+            "title": "Fecha Apertura",
+            "type": "string"
+          },
+          "ingresos": {
+            "title": "Ingresos",
+            "type": "number"
+          },
+          "monto_apertura": {
+            "title": "Monto Apertura",
+            "type": "number"
+          },
+          "sesion_id": {
+            "format": "uuid",
+            "title": "Sesion Id",
+            "type": "string"
+          },
+          "ventas_efectivo": {
+            "title": "Ventas Efectivo",
+            "type": "number"
+          },
+          "ventas_qr": {
+            "title": "Ventas Qr",
+            "type": "number"
+          },
+          "ventas_tarjeta": {
+            "title": "Ventas Tarjeta",
+            "type": "number"
+          }
+        },
+        "required": [
+          "sesion_id",
+          "estado",
+          "fecha_apertura",
+          "monto_apertura",
+          "ventas_efectivo",
+          "ventas_tarjeta",
+          "ventas_qr",
+          "cantidad_ventas",
+          "ingresos",
+          "egresos",
+          "esperado_efectivo"
+        ],
+        "title": "CajaResumenResponse",
+        "type": "object"
+      },
+      "CategoriaCreate": {
+        "properties": {
+          "descripcion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descripcion"
+          },
+          "nombre": {
+            "title": "Nombre",
+            "type": "string"
+          },
+          "tiendanube_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tiendanube Id"
+          }
+        },
+        "required": [
+          "nombre"
+        ],
+        "title": "CategoriaCreate",
+        "type": "object"
+      },
+      "CategoriaResponse": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "descripcion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descripcion"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nombre": {
+            "title": "Nombre",
+            "type": "string"
+          },
+          "tiendanube_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tiendanube Id"
+          }
+        },
+        "required": [
+          "nombre",
+          "id"
+        ],
+        "title": "CategoriaResponse",
+        "type": "object"
+      },
+      "CategoriaUpdate": {
+        "properties": {
+          "descripcion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descripcion"
+          },
+          "nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nombre"
+          },
+          "tiendanube_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tiendanube Id"
+          }
+        },
+        "title": "CategoriaUpdate",
+        "type": "object"
+      },
+      "ClienteCreate": {
+        "properties": {
+          "ciudad": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ciudad"
+          },
+          "direccion": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direccion"
+          },
+          "dni_cuit": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dni Cuit"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "format": "email",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "nombre": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Nombre",
+            "type": "string"
+          },
+          "telefono": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telefono"
+          },
+          "tipo_iva": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Consumidor Final",
+                  "Monotributista",
+                  "Responsable Inscripto",
+                  "Exento"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tipo Iva"
+          }
+        },
+        "required": [
+          "nombre"
+        ],
+        "title": "ClienteCreate",
+        "type": "object"
+      },
+      "ClienteResponse": {
+        "properties": {
+          "ciudad": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ciudad"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "direccion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direccion"
+          },
+          "dni_cuit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dni Cuit"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "id": {
+            "format": "uuid4",
+            "title": "Id",
+            "type": "string"
+          },
+          "nombre": {
+            "title": "Nombre",
+            "type": "string"
+          },
+          "telefono": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telefono"
+          },
+          "tipo_iva": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tipo Iva"
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "created_at"
+        ],
+        "title": "ClienteResponse",
+        "type": "object"
+      },
+      "ClienteUpdate": {
+        "properties": {
+          "ciudad": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ciudad"
+          },
+          "direccion": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direccion"
+          },
+          "dni_cuit": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dni Cuit"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "format": "email",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "nombre": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nombre"
+          },
+          "telefono": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telefono"
+          },
+          "tipo_iva": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Consumidor Final",
+                  "Monotributista",
+                  "Responsable Inscripto",
+                  "Exento"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tipo Iva"
+          }
+        },
+        "title": "ClienteUpdate",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "MarcaCreate": {
+        "properties": {
+          "contacto_nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contacto Nombre"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "nombre": {
+            "title": "Nombre",
+            "type": "string"
+          },
+          "telefono": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telefono"
+          }
+        },
+        "required": [
+          "nombre"
+        ],
+        "title": "MarcaCreate",
+        "type": "object"
+      },
+      "MarcaResponse": {
+        "properties": {
+          "contacto_nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contacto Nombre"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nombre": {
+            "title": "Nombre",
+            "type": "string"
+          },
+          "telefono": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telefono"
+          }
+        },
+        "required": [
+          "nombre",
+          "id"
+        ],
+        "title": "MarcaResponse",
+        "type": "object"
+      },
+      "MarcaUpdate": {
+        "properties": {
+          "contacto_nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contacto Nombre"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nombre"
+          },
+          "telefono": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telefono"
+          }
+        },
+        "title": "MarcaUpdate",
+        "type": "object"
+      },
+      "MeResponse": {
+        "properties": {
+          "activo": {
+            "title": "Activo",
+            "type": "boolean"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "rol": {
+            "title": "Rol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "rol",
+          "activo"
+        ],
+        "title": "MeResponse",
+        "type": "object"
+      },
+      "MessageResponse": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "MessageResponse",
+        "type": "object"
+      },
+      "OkResponse": {
+        "properties": {
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "title": "OkResponse",
+        "type": "object"
+      },
+      "ProductCreate": {
+        "properties": {
+          "descripcion": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descripcion"
+          },
+          "marca_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Marca Id"
+          },
+          "nombre": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Nombre",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nombre"
+        ],
+        "title": "ProductCreate",
+        "type": "object"
+      },
+      "ProductResponse": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "descripcion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descripcion"
+          },
+          "id": {
+            "format": "uuid4",
+            "title": "Id",
+            "type": "string"
+          },
+          "marca_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Marca Id"
+          },
+          "nombre": {
+            "title": "Nombre",
+            "type": "string"
+          },
+          "variantes": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/VariantResponse"
+            },
+            "title": "Variantes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "nombre"
+        ],
+        "title": "ProductResponse",
+        "type": "object"
+      },
+      "ProductUpdate": {
+        "properties": {
+          "descripcion": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descripcion"
+          },
+          "marca_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Marca Id"
+          },
+          "nombre": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nombre"
+          }
+        },
+        "title": "ProductUpdate",
+        "type": "object"
+      },
+      "ProductoTopReporte": {
+        "properties": {
+          "cantidad_vendida": {
+            "title": "Cantidad Vendida",
+            "type": "integer"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "ingresos_generados": {
+            "title": "Ingresos Generados",
+            "type": "number"
+          },
+          "nombre_producto": {
+            "title": "Nombre Producto",
+            "type": "string"
+          },
+          "talle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Talle"
+          },
+          "variante_id": {
+            "title": "Variante Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variante_id",
+          "nombre_producto",
+          "cantidad_vendida",
+          "ingresos_generados"
+        ],
+        "title": "ProductoTopReporte",
+        "type": "object"
+      },
+      "RoleResponse": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nombre": {
+            "title": "Nombre",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nombre"
+        ],
+        "title": "RoleResponse",
+        "type": "object"
+      },
+      "SesionCajaResponse": {
+        "properties": {
+          "estado": {
+            "title": "Estado",
+            "type": "string"
+          },
+          "fecha_apertura": {
+            "format": "date-time",
+            "title": "Fecha Apertura",
+            "type": "string"
+          },
+          "fecha_cierre": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fecha Cierre"
+          },
+          "id": {
+            "format": "uuid4",
+            "title": "Id",
+            "type": "string"
+          },
+          "monto_apertura": {
+            "title": "Monto Apertura",
+            "type": "number"
+          },
+          "monto_esperado_efectivo": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monto Esperado Efectivo"
+          },
+          "monto_real_efectivo": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monto Real Efectivo"
+          },
+          "observaciones": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observaciones"
+          },
+          "usuario_id": {
+            "format": "uuid4",
+            "title": "Usuario Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "usuario_id",
+          "fecha_apertura",
+          "monto_apertura",
+          "estado"
+        ],
+        "title": "SesionCajaResponse",
+        "type": "object"
+      },
+      "StockAdjustResponse": {
+        "additionalProperties": true,
+        "description": "Full `producto_variantes` row returned by the `ajustar_stock` function.",
+        "properties": {
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "id": {
+            "format": "uuid4",
+            "title": "Id",
+            "type": "string"
+          },
+          "precio_costo": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precio Costo"
+          },
+          "precio_venta": {
+            "title": "Precio Venta",
+            "type": "number"
+          },
+          "producto_id": {
+            "format": "uuid4",
+            "title": "Producto Id",
+            "type": "string"
+          },
+          "sku": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sku"
+          },
+          "stock_actual": {
+            "default": 0,
+            "title": "Stock Actual",
+            "type": "integer"
+          },
+          "stock_minimo": {
+            "default": 0,
+            "title": "Stock Minimo",
+            "type": "integer"
+          },
+          "talle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Talle"
+          },
+          "tiendanube_variant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tiendanube Variant Id"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "producto_id",
+          "precio_venta"
+        ],
+        "title": "StockAdjustResponse",
+        "type": "object"
+      },
+      "StockUpdate": {
+        "properties": {
+          "cantidad": {
+            "title": "Cantidad",
+            "type": "integer"
+          },
+          "motivo": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Motivo",
+            "type": "string"
+          },
+          "variante_id": {
+            "format": "uuid4",
+            "title": "Variante Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variante_id",
+          "cantidad",
+          "motivo"
+        ],
+        "title": "StockUpdate",
+        "type": "object"
+      },
+      "UsuarioActivoUpdate": {
+        "properties": {
+          "activo": {
+            "title": "Activo",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "activo"
+        ],
+        "title": "UsuarioActivoUpdate",
+        "type": "object"
+      },
+      "UsuarioResponse": {
+        "properties": {
+          "activo": {
+            "title": "Activo",
+            "type": "boolean"
+          },
+          "apellido": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apellido"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid4",
+            "title": "Id",
+            "type": "string"
+          },
+          "nombre": {
+            "title": "Nombre",
+            "type": "string"
+          },
+          "roles": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoleResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "activo",
+          "created_at"
+        ],
+        "title": "UsuarioResponse",
+        "type": "object"
+      },
+      "UsuarioRoleUpdate": {
+        "properties": {
+          "rol_id": {
+            "title": "Rol Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rol_id"
+        ],
+        "title": "UsuarioRoleUpdate",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VariantCreate": {
+        "properties": {
+          "color": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "precio_costo": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Precio Costo",
+            "type": "number"
+          },
+          "precio_venta": {
+            "minimum": 0.0,
+            "title": "Precio Venta",
+            "type": "number"
+          },
+          "producto_id": {
+            "format": "uuid4",
+            "title": "Producto Id",
+            "type": "string"
+          },
+          "sku": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sku"
+          },
+          "stock_actual": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Stock Actual",
+            "type": "integer"
+          },
+          "stock_minimo": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Stock Minimo",
+            "type": "integer"
+          },
+          "talle": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Talle"
+          }
+        },
+        "required": [
+          "producto_id",
+          "precio_venta"
+        ],
+        "title": "VariantCreate",
+        "type": "object"
+      },
+      "VariantResponse": {
+        "properties": {
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "id": {
+            "format": "uuid4",
+            "title": "Id",
+            "type": "string"
+          },
+          "precio_costo": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precio Costo"
+          },
+          "precio_venta": {
+            "title": "Precio Venta",
+            "type": "number"
+          },
+          "producto_id": {
+            "format": "uuid4",
+            "title": "Producto Id",
+            "type": "string"
+          },
+          "sku": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sku"
+          },
+          "stock_actual": {
+            "default": 0,
+            "title": "Stock Actual",
+            "type": "integer"
+          },
+          "stock_minimo": {
+            "default": 0,
+            "title": "Stock Minimo",
+            "type": "integer"
+          },
+          "talle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Talle"
+          }
+        },
+        "required": [
+          "id",
+          "producto_id",
+          "precio_venta"
+        ],
+        "title": "VariantResponse",
+        "type": "object"
+      },
+      "VariantUpdate": {
+        "properties": {
+          "color": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "precio_costo": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precio Costo"
+          },
+          "precio_venta": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precio Venta"
+          },
+          "sku": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sku"
+          },
+          "stock_minimo": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock Minimo"
+          },
+          "talle": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Talle"
+          }
+        },
+        "title": "VariantUpdate",
+        "type": "object"
+      },
+      "VentaCreate": {
+        "properties": {
+          "cliente_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cliente Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/VentaItem"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "metodo_pago": {
+            "enum": [
+              "Efectivo",
+              "Tarjeta",
+              "QR"
+            ],
+            "title": "Metodo Pago",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "metodo_pago"
+        ],
+        "title": "VentaCreate",
+        "type": "object"
+      },
+      "VentaDia": {
+        "properties": {
+          "cantidad_ventas": {
+            "title": "Cantidad Ventas",
+            "type": "integer"
+          },
+          "fecha": {
+            "format": "date",
+            "title": "Fecha",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "number"
+          }
+        },
+        "required": [
+          "fecha",
+          "total",
+          "cantidad_ventas"
+        ],
+        "title": "VentaDia",
+        "type": "object"
+      },
+      "VentaItem": {
+        "properties": {
+          "cantidad": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000.0,
+            "title": "Cantidad",
+            "type": "integer"
+          },
+          "precio_unitario": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "deprecated": true,
+            "description": "Ignorado. El precio se toma siempre de la base de datos.",
+            "title": "Precio Unitario"
+          },
+          "variante_id": {
+            "format": "uuid",
+            "title": "Variante Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variante_id",
+          "cantidad"
+        ],
+        "title": "VentaItem",
+        "type": "object"
+      },
+      "VentaResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "metodo_pago": {
+            "title": "Metodo Pago",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "total",
+          "metodo_pago"
+        ],
+        "title": "VentaResponse",
+        "type": "object"
+      },
+      "VentasTotalesReporte": {
+        "properties": {
+          "cantidad_operaciones": {
+            "title": "Cantidad Operaciones",
+            "type": "integer"
+          },
+          "total_ingresos": {
+            "title": "Total Ingresos",
+            "type": "number"
+          },
+          "ventas_por_dia": {
+            "items": {
+              "$ref": "#/components/schemas/VentaDia"
+            },
+            "title": "Ventas Por Dia",
+            "type": "array"
+          }
+        },
+        "required": [
+          "total_ingresos",
+          "cantidad_operaciones",
+          "ventas_por_dia"
+        ],
+        "title": "VentasTotalesReporte",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Uniforms POS API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Root"
+      }
+    },
+    "/api/v1/caja/apertura": {
+      "post": {
+        "operationId": "abrir_caja_api_v1_caja_apertura_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CajaApertura"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SesionCajaResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Abrir Caja",
+        "tags": [
+          "Caja"
+        ]
+      }
+    },
+    "/api/v1/caja/cierre": {
+      "post": {
+        "operationId": "cerrar_caja_api_v1_caja_cierre_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CajaCierre"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SesionCajaResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cerrar Caja",
+        "tags": [
+          "Caja"
+        ]
+      }
+    },
+    "/api/v1/caja/estado": {
+      "get": {
+        "operationId": "get_estado_api_v1_caja_estado_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SesionCajaResponse"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Estado Api V1 Caja Estado Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Estado",
+        "tags": [
+          "Caja"
+        ]
+      }
+    },
+    "/api/v1/caja/movimiento": {
+      "post": {
+        "operationId": "registrar_movimiento_api_v1_caja_movimiento_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CajaMovimiento"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CajaMovimientoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Registrar Movimiento",
+        "tags": [
+          "Caja"
+        ]
+      }
+    },
+    "/api/v1/caja/movimientos": {
+      "get": {
+        "operationId": "get_movimientos_api_v1_caja_movimientos_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CajaMovimientoResponse"
+                  },
+                  "title": "Response Get Movimientos Api V1 Caja Movimientos Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Movimientos",
+        "tags": [
+          "Caja"
+        ]
+      }
+    },
+    "/api/v1/caja/resumen": {
+      "get": {
+        "description": "Live totals of the open session; `null` when the register is closed.",
+        "operationId": "get_resumen_api_v1_caja_resumen_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CajaResumenResponse"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Resumen Api V1 Caja Resumen Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Resumen",
+        "tags": [
+          "Caja"
+        ]
+      }
+    },
+    "/api/v1/caja/sesiones": {
+      "get": {
+        "operationId": "get_sesiones_api_v1_caja_sesiones_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SesionCajaResponse"
+                  },
+                  "title": "Response Get Sesiones Api V1 Caja Sesiones Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Sesiones",
+        "tags": [
+          "Caja"
+        ]
+      }
+    },
+    "/api/v1/caja/sesiones/{sesion_id}/movimientos": {
+      "get": {
+        "operationId": "get_movimientos_por_sesion_api_v1_caja_sesiones__sesion_id__movimientos_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sesion_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Sesion Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CajaMovimientoResponse"
+                  },
+                  "title": "Response Get Movimientos Por Sesion Api V1 Caja Sesiones  Sesion Id  Movimientos Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Movimientos Por Sesion",
+        "tags": [
+          "Caja"
+        ]
+      }
+    },
+    "/api/v1/catalogos/categorias": {
+      "get": {
+        "operationId": "get_categorias_api_v1_catalogos_categorias_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CategoriaResponse"
+                  },
+                  "title": "Response Get Categorias Api V1 Catalogos Categorias Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Categorias",
+        "tags": [
+          "Catálogos"
+        ]
+      },
+      "post": {
+        "operationId": "create_categoria_api_v1_catalogos_categorias_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoriaCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoriaResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Categoria",
+        "tags": [
+          "Catálogos"
+        ]
+      }
+    },
+    "/api/v1/catalogos/categorias/{categoria_id}": {
+      "delete": {
+        "operationId": "delete_categoria_api_v1_catalogos_categorias__categoria_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "categoria_id",
+            "required": true,
+            "schema": {
+              "title": "Categoria Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Categoria",
+        "tags": [
+          "Catálogos"
+        ]
+      },
+      "patch": {
+        "operationId": "update_categoria_api_v1_catalogos_categorias__categoria_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "categoria_id",
+            "required": true,
+            "schema": {
+              "title": "Categoria Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoriaUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoriaResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Categoria",
+        "tags": [
+          "Catálogos"
+        ]
+      }
+    },
+    "/api/v1/catalogos/marcas": {
+      "get": {
+        "operationId": "get_marcas_api_v1_catalogos_marcas_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MarcaResponse"
+                  },
+                  "title": "Response Get Marcas Api V1 Catalogos Marcas Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Marcas",
+        "tags": [
+          "Catálogos"
+        ]
+      },
+      "post": {
+        "operationId": "create_marca_api_v1_catalogos_marcas_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarcaCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarcaResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Marca",
+        "tags": [
+          "Catálogos"
+        ]
+      }
+    },
+    "/api/v1/catalogos/marcas/{marca_id}": {
+      "delete": {
+        "operationId": "delete_marca_api_v1_catalogos_marcas__marca_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "marca_id",
+            "required": true,
+            "schema": {
+              "title": "Marca Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Marca",
+        "tags": [
+          "Catálogos"
+        ]
+      },
+      "patch": {
+        "operationId": "update_marca_api_v1_catalogos_marcas__marca_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "marca_id",
+            "required": true,
+            "schema": {
+              "title": "Marca Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarcaUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarcaResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Marca",
+        "tags": [
+          "Catálogos"
+        ]
+      }
+    },
+    "/api/v1/clientes/": {
+      "get": {
+        "operationId": "get_clientes_api_v1_clientes__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Query"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 1000,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ClienteResponse"
+                  },
+                  "title": "Response Get Clientes Api V1 Clientes  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Clientes",
+        "tags": [
+          "Clientes"
+        ]
+      },
+      "post": {
+        "operationId": "create_cliente_api_v1_clientes__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClienteCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClienteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Cliente",
+        "tags": [
+          "Clientes"
+        ]
+      }
+    },
+    "/api/v1/clientes/{id}": {
+      "patch": {
+        "operationId": "update_cliente_api_v1_clientes__id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClienteUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClienteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Cliente",
+        "tags": [
+          "Clientes"
+        ]
+      }
+    },
+    "/api/v1/productos/": {
+      "get": {
+        "operationId": "get_products_api_v1_productos__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "categoria_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Categoria Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProductResponse"
+                  },
+                  "title": "Response Get Products Api V1 Productos  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Products",
+        "tags": [
+          "Productos"
+        ]
+      },
+      "post": {
+        "operationId": "create_product_api_v1_productos__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Product",
+        "tags": [
+          "Productos"
+        ]
+      }
+    },
+    "/api/v1/productos/inventario/stock": {
+      "patch": {
+        "operationId": "update_stock_api_v1_productos_inventario_stock_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockAdjustResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Stock",
+        "tags": [
+          "Productos"
+        ]
+      }
+    },
+    "/api/v1/productos/sku/{sku}": {
+      "get": {
+        "operationId": "get_product_by_sku_api_v1_productos_sku__sku__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sku",
+            "required": true,
+            "schema": {
+              "title": "Sku",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Product By Sku",
+        "tags": [
+          "Productos"
+        ]
+      }
+    },
+    "/api/v1/productos/variante": {
+      "post": {
+        "operationId": "create_variant_api_v1_productos_variante_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariantCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VariantResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Variant",
+        "tags": [
+          "Productos"
+        ]
+      }
+    },
+    "/api/v1/productos/variante/{id}": {
+      "delete": {
+        "operationId": "delete_variant_api_v1_productos_variante__id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Variant",
+        "tags": [
+          "Productos"
+        ]
+      },
+      "patch": {
+        "operationId": "update_variant_api_v1_productos_variante__id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariantUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VariantResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Variant",
+        "tags": [
+          "Productos"
+        ]
+      }
+    },
+    "/api/v1/productos/{id}": {
+      "delete": {
+        "operationId": "delete_product_api_v1_productos__id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Product",
+        "tags": [
+          "Productos"
+        ]
+      },
+      "patch": {
+        "operationId": "update_product_api_v1_productos__id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Product",
+        "tags": [
+          "Productos"
+        ]
+      }
+    },
+    "/api/v1/reportes/cajas": {
+      "get": {
+        "operationId": "obtener_reporte_cajas_api_v1_reportes_cajas_get",
+        "parameters": [
+          {
+            "description": "Fecha inicio YYYY-MM-DD",
+            "in": "query",
+            "name": "fecha_inicio",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Fecha inicio YYYY-MM-DD",
+              "title": "Fecha Inicio"
+            }
+          },
+          {
+            "description": "Fecha fin YYYY-MM-DD",
+            "in": "query",
+            "name": "fecha_fin",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Fecha fin YYYY-MM-DD",
+              "title": "Fecha Fin"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CajaResumenReporte"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Obtener Reporte Cajas",
+        "tags": [
+          "Reportes"
+        ]
+      }
+    },
+    "/api/v1/reportes/productos-top": {
+      "get": {
+        "operationId": "obtener_reporte_productos_top_api_v1_reportes_productos_top_get",
+        "parameters": [
+          {
+            "description": "Fecha inicio YYYY-MM-DD",
+            "in": "query",
+            "name": "fecha_inicio",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Fecha inicio YYYY-MM-DD",
+              "title": "Fecha Inicio"
+            }
+          },
+          {
+            "description": "Fecha fin YYYY-MM-DD",
+            "in": "query",
+            "name": "fecha_fin",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Fecha fin YYYY-MM-DD",
+              "title": "Fecha Fin"
+            }
+          },
+          {
+            "description": "Cantidad máxima de variantes",
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Cantidad máxima de variantes",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProductoTopReporte"
+                  },
+                  "title": "Response Obtener Reporte Productos Top Api V1 Reportes Productos Top Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Obtener Reporte Productos Top",
+        "tags": [
+          "Reportes"
+        ]
+      }
+    },
+    "/api/v1/reportes/ventas": {
+      "get": {
+        "operationId": "obtener_reporte_ventas_api_v1_reportes_ventas_get",
+        "parameters": [
+          {
+            "description": "Fecha inicio YYYY-MM-DD",
+            "in": "query",
+            "name": "fecha_inicio",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Fecha inicio YYYY-MM-DD",
+              "title": "Fecha Inicio"
+            }
+          },
+          {
+            "description": "Fecha fin YYYY-MM-DD",
+            "in": "query",
+            "name": "fecha_fin",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Fecha fin YYYY-MM-DD",
+              "title": "Fecha Fin"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VentasTotalesReporte"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Obtener Reporte Ventas",
+        "tags": [
+          "Reportes"
+        ]
+      }
+    },
+    "/api/v1/usuarios/": {
+      "get": {
+        "operationId": "get_usuarios_api_v1_usuarios__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UsuarioResponse"
+                  },
+                  "title": "Response Get Usuarios Api V1 Usuarios  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Usuarios",
+        "tags": [
+          "Usuarios"
+        ]
+      }
+    },
+    "/api/v1/usuarios/me": {
+      "get": {
+        "operationId": "get_me_api_v1_usuarios_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Me",
+        "tags": [
+          "Usuarios"
+        ]
+      }
+    },
+    "/api/v1/usuarios/roles": {
+      "get": {
+        "operationId": "get_roles_api_v1_usuarios_roles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RoleResponse"
+                  },
+                  "title": "Response Get Roles Api V1 Usuarios Roles Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Roles",
+        "tags": [
+          "Usuarios"
+        ]
+      }
+    },
+    "/api/v1/usuarios/{id}/activo": {
+      "patch": {
+        "operationId": "update_activo_api_v1_usuarios__id__activo_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsuarioActivoUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Activo",
+        "tags": [
+          "Usuarios"
+        ]
+      }
+    },
+    "/api/v1/usuarios/{id}/rol": {
+      "patch": {
+        "operationId": "update_rol_api_v1_usuarios__id__rol_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsuarioRoleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Rol",
+        "tags": [
+          "Usuarios"
+        ]
+      }
+    },
+    "/api/v1/ventas/": {
+      "post": {
+        "operationId": "crear_venta_api_v1_ventas__post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VentaCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VentaResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Crear Venta",
+        "tags": [
+          "Ventas"
+        ]
+      }
+    },
+    "/api/v1/ventas/hoy": {
+      "get": {
+        "operationId": "get_ventas_hoy_api_v1_ventas_hoy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VentaResponse"
+                  },
+                  "title": "Response Get Ventas Hoy Api V1 Ventas Hoy Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Ventas Hoy",
+        "tags": [
+          "Ventas"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Liveness probe: the process is up. Does not touch the database.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "description": "Readiness probe: the database answers one cheap query.",
+        "operationId": "health_ready_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Ready",
+        "tags": [
+          "Health"
+        ]
+      }
+    }
+  }
+}
