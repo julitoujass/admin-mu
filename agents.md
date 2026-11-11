@@ -1,7 +1,7 @@
 # agents.md — Contexto del Backend `admin-mu`
 
 > **⚠️ Este archivo debe actualizarse cada vez que se modifique la API.**
-> Última actualización: 2026-11-11 — Fase 1 (fundaciones): dependencias, settings, CORS, health, manejo global de errores, tests, ruff y CI
+> Última actualización: 2026-11-11 — Fase 3 (autorización): matriz de roles, usuarios inactivos, cache de tokens acotado, costos ocultos para no-admin, gestión segura de usuarios e ids UUID validados
 
 ---
 
@@ -69,9 +69,9 @@ app/
 │   ├── supabase.py                # Singleton del cliente Supabase
 │   ├── db_utils.py                # fetch_all (paginado interno con .range()) y single_row (resultado de RPC)
 │   ├── timeutils.py               # Zona horaria de negocio (America/Argentina/Buenos_Aires) y límites del día local
-│   └── exceptions.py              # Excepciones custom: StockError (legado), CajaError (con status_code)
+│   └── exceptions.py              # Excepciones custom: StockError (legado), CajaError y UsuarioError (con status_code)
 ├── api/
-│   ├── auth_deps.py               # get_current_user (valida token + rol) y RoleChecker
+│   ├── auth_deps.py               # get_current_user (token + rol + activo), RoleChecker, TTLCache e invalidate_user
 │   └── v1/
 │       └── endpoints/
 │           ├── productos.py       # Rutas de productos y variantes
@@ -88,7 +88,7 @@ app/
 │   ├── clientes.py                # Pydantic models: ClienteCreate/Update/Response
 │   ├── reportes.py                # Pydantic models: VentasTotalesReporte, ProductoTopReporte, CajaResumenReporte
 │   ├── catalogos.py               # Pydantic models: MarcaCreate/Update/Response, CategoriaCreate/Update/Response
-│   └── usuarios.py                # Pydantic models: RoleResponse, UsuarioResponse, UsuarioRoleUpdate
+│   └── usuarios.py                # Pydantic models: RoleResponse, UsuarioResponse, UsuarioRoleUpdate, UsuarioActivoUpdate, MeResponse
 ├── services/
 │   ├── producto_service.py        # Lógica de negocio de productos y variantes
 │   ├── caja_service.py            # Lógica de negocio de caja
@@ -96,19 +96,21 @@ app/
 │   ├── cliente_service.py         # Lógica de negocio de clientes
 │   ├── reporte_service.py         # Reportes: delega en las funciones SQL reporte_*
 │   ├── catalogo_service.py        # CRUD de marcas y categorías
-│   ├── usuario_service.py         # Lectura de perfiles/roles y cambio de rol
+│   ├── usuario_service.py         # Lectura de perfiles/roles, cambio de rol y activación (con reglas de seguridad)
 │   └── log_service.py             # Auditoría: inserta en tabla `logs` (BackgroundTask)
 scripts/
 ├── seed_data.py                   # Carga de datos de prueba
 └── get_token.py                   # Obtiene un JWT de Supabase para probar la API
 tests/
-├── conftest.py                    # Variables de entorno ficticias + fixtures `client` / `auth_client`
+├── conftest.py                    # Variables de entorno ficticias + fixtures `client` / `auth_client` (admin) / `employee_client` (empleado)
 ├── test_settings.py               # Settings: defaults, parseo de CORS, validaciones
 ├── test_health.py                 # /health y /health/ready
 ├── test_cors.py                   # Preflight CORS (origen permitido / desconocido)
 ├── fakes.py                       # FakeSupabase: cliente falso que registra las consultas y devuelve respuestas en cola
 ├── test_error_handling.py         # Mapeo de APIError (incluye códigos MU00x), 500 genérico, errores de catálogos
-├── test_auth_deps.py              # get_current_user: 401 sin filtrar detalles
+├── test_auth_deps.py              # get_current_user: 401 sin filtrar detalles, usuarios inactivos, TTLCache e invalidate_user
+├── test_authz.py                  # Matriz de roles (403 empleado / 200 admin por ruta), costos ocultos, ids UUID inválidos → 422
+├── test_usuarios.py               # /usuarios/me, cambio de rol y de `activo`: 404/400/409, auditoría e invalidación del cache
 ├── test_ventas.py                 # RPC crear_venta, Idempotency-Key, validaciones, /ventas/hoy (día de Argentina, paginado)
 ├── test_caja.py                   # Apertura (usuario del token, 409), cierre (cerrar_caja), resumen, movimientos, paginado
 ├── test_productos.py              # ajustar_stock, validaciones de productos/variantes, paginado interno del catálogo
@@ -123,24 +125,58 @@ README.md                          # Instalación, ejecución, tests y lint
 
 ---
 
-## Autenticación
+## Autenticación y autorización
 
 - **Mecanismo:** JWT Bearer (tokens de Supabase Auth)
 - **Dependencia:** `get_current_user` en `app/api/auth_deps.py`
 - **Funcionamiento:** Extrae el token del header `Authorization: Bearer <token>` y lo valida con `supabase.auth.get_user(token)` (no hay verificación local del JWT). Si el token es inválido o la validación falla, retorna 401 con el mensaje fijo `"No se pudieron validar las credenciales"`; el error real solo se loguea.
-- **Rol:** Después de validar el token, lee `perfiles.select("roles(nombre)")` para el usuario. Si no tiene perfil/rol o la consulta falla, el rol es `"empleado"`.
-- **`current_user`:** Es un `AppUser` propio con `id`, `email` y `rol` (no el objeto `User` de Supabase).
-- **Cache:** El `AppUser` se cachea en memoria por token durante 5 minutos (`_TOKEN_CACHE`). Un cambio de rol puede tardar hasta 5 min en reflejarse, y el cache no se comparte entre procesos/workers.
-- **`RoleChecker(allowed_roles)`:** Dependency que responde 403 si `current_user.rol` no está en la lista. Hoy se usa solo con `["admin"]` en:
-  - `/reportes/*`
-  - `/usuarios/*` (excepto `/usuarios/me`)
-  - `DELETE /productos/{id}` y `DELETE /productos/variante/{id}`
-- El resto de los endpoints solo exige `Depends(get_current_user)` (incluidas las escrituras de catálogos).
+- **Rol y estado:** Después de validar el token, lee `perfiles.select("activo, roles(nombre)")` para el usuario, en **una sola consulta**.
+  - Sin perfil (PostgREST `PGRST116` o respuesta vacía) o sin rol → `empleado` activo.
+  - `activo = false` → **403 `"Usuario inactivo"`** en cualquier endpoint autenticado. Solo un `false` explícito desactiva.
+  - Si la consulta falla por otro motivo → **503 `"No se pudo verificar el usuario. Intentá de nuevo."`** (no se puede saber si el usuario sigue activo, así que no se lo deja pasar). El error real solo se loguea.
+- **`current_user`:** Es un `AppUser` propio con `id`, `email`, `rol` y `activo` (no el objeto `User` de Supabase).
+- **`RoleChecker(allowed_roles)`:** Dependency que responde 403 `"No tienes permisos suficientes para realizar esta acción."` si `current_user.rol` no está en la lista. Se usa con `["admin"]` en todas las rutas marcadas con 🔒.
 - **Caja:** `POST /api/v1/caja/apertura` toma el usuario de la sesión de `current_user.id` (token). Si el body trae `usuario_id`, se ignora.
+
+### Matriz de roles (decisión de negocio)
+
+Los roles salen de `perfiles.rol_id → roles.nombre` (`admin`, `empleado`). ✅ = permitido, 🔒 = 403.
+
+| Recurso | Operación | empleado | admin |
+|---|---|---|---|
+| Ventas | `POST /ventas/`, `GET /ventas/hoy` | ✅ | ✅ |
+| Caja | `GET /caja/estado`, `GET /caja/resumen`, `GET /caja/movimientos` (sesión actual), `POST /caja/apertura`, `POST /caja/movimiento`, `POST /caja/cierre` | ✅ | ✅ |
+| Caja | `GET /caja/sesiones`, `GET /caja/sesiones/{sesion_id}/movimientos` (historial de otras sesiones) | 🔒 | ✅ |
+| Productos | `GET /productos/`, `GET /productos/sku/{sku}` | ✅ **sin costos** (`precio_costo: null`) | ✅ con costos |
+| Productos | `POST /productos/`, `PATCH /productos/{id}`, `POST /productos/variante`, `PATCH /productos/variante/{id}`, `PATCH /productos/inventario/stock`, `DELETE /productos/{id}`, `DELETE /productos/variante/{id}` | 🔒 | ✅ |
+| Catálogos | `GET /catalogos/marcas`, `GET /catalogos/categorias` | ✅ | ✅ |
+| Catálogos | `POST` / `PATCH` / `DELETE` de marcas y categorías | 🔒 | ✅ |
+| Clientes | `GET /clientes/`, `POST /clientes/`, `PATCH /clientes/{id}` | ✅ | ✅ |
+| Reportes | `GET /reportes/*` | 🔒 | ✅ |
+| Usuarios | `GET /usuarios/me` | ✅ | ✅ |
+| Usuarios | `GET /usuarios/`, `GET /usuarios/roles`, `PATCH /usuarios/{id}/rol`, `PATCH /usuarios/{id}/activo` | 🔒 | ✅ |
+
+Un rol distinto de `admin` (o un usuario sin perfil) se trata como `empleado`.
+
+### Costos ocultos para no-admin
+
+`precio_costo` solo lo ve un admin. En `GET /productos/` y `GET /productos/sku/{sku}` el endpoint quita el campo de cada variante antes de responder, y `VariantResponse.precio_costo` es opcional, así que un empleado recibe `"precio_costo": null`. El resto de las respuestas que ve un empleado no lleva costos: `VentaResponse` solo expone `id, created_at, total, metodo_pago` (nunca `total_costo`), y las respuestas de caja, clientes y catálogos no tienen columnas de costo. Las rutas que devuelven la fila completa de una variante (alta, edición, ajuste de stock) son solo admin.
+
+### Cache de tokens
+
+- El `AppUser` se cachea en memoria por token en `_TOKEN_CACHE`, un `TTLCache` propio (sin dependencias nuevas): **máximo 1024 entradas, TTL de 60 s**. Al insertar se descartan primero las entradas vencidas y, si sigue lleno, las más antiguas; la memoria no puede crecer sin límite.
+- Un cambio de rol o una desactivación hecha por fuera de la API (por ejemplo desde el panel de Supabase) tarda como máximo 60 s en aplicarse.
+- **`invalidate_user(user_id)`** descarta las entradas cacheadas de ese usuario. La llaman `PATCH /usuarios/{id}/rol` y `PATCH /usuarios/{id}/activo`, así que esos cambios aplican en el próximo request.
+- Un usuario inactivo nunca se cachea: al reactivarlo vuelve a entrar de inmediato.
+- El cache es por proceso: no se comparte entre workers (con varios workers, la invalidación solo alcanza al proceso que atendió el cambio; el resto espera el TTL de 60 s).
+
+### Ids en la URL
+
+Los parámetros de ruta que apuntan a filas con id UUID (`productos`, `producto_variantes`, `clientes`, `sesiones_caja`, `perfiles`) están tipados como `uuid.UUID`: un id mal formado responde **422** sin llegar a PostgREST. Los servicios reciben `str(id)`. Marcas y categorías siguen usando ids enteros.
 
 ## Auditoría (`logs`)
 
-`LogService.registrar_log()` inserta un registro en la tabla `logs` (evento, entidad, entidad_id, payload, usuario_id, estado). Se ejecuta como `BackgroundTask` desde los endpoints de escritura de productos, caja, ventas, clientes y catálogos. Si el insert falla, solo se loguea el error y no afecta la respuesta.
+`LogService.registrar_log()` inserta un registro en la tabla `logs` (evento, entidad, entidad_id, payload, usuario_id, estado). Se ejecuta como `BackgroundTask` desde los endpoints de escritura de productos, caja, ventas, clientes, catálogos y usuarios (`UPDATE_ROL`, `UPDATE_ACTIVO` sobre `perfiles`). Si el insert falla, solo se loguea el error y no afecta la respuesta.
 
 ---
 
@@ -161,6 +197,7 @@ Definidos en `main.py`.
 |---|---|---|
 | `StockError` | 400 | Mensaje de negocio. Legado: ya no se lanza desde los servicios (el stock lo valida la base, ver códigos `MU00x`) |
 | `CajaError` | `exc.status_code` (400 por defecto) | Mensaje de negocio: 400 `No hay sesión de caja abierta.`, 409 `Ya existe una sesión de caja abierta.` |
+| `UsuarioError` | `exc.status_code` (400 por defecto) | Mensaje de negocio de gestión de usuarios: 404, 400 o 409 (ver Usuarios) |
 | `postgrest.APIError` código `23505` | 409 | `Conflicto: el registro ya existe` |
 | `postgrest.APIError` código `23503` | 409 | `Conflicto: el registro está referenciado por otros datos` |
 | `postgrest.APIError` código `PGRST116` | 404 | `Recurso no encontrado` |
@@ -186,7 +223,7 @@ Un código `MU` no listado se trata como cualquier otro error desconocido (500 g
 
 **Reglas:**
 - El error real (código, mensaje y detalles de PostgREST, o el traceback) se registra con `logging` en el servidor y **nunca** se incluye en la respuesta, salvo el `message` de los códigos `MU00x` listados arriba.
-- Los endpoints no deben devolver `str(e)` de excepciones arbitrarias. Solo se usan como `detail` los mensajes de negocio propios (`ValueError` de los servicios, `StockError`, `CajaError`); cualquier otra excepción se deja propagar a los handlers globales.
+- Los endpoints no deben devolver `str(e)` de excepciones arbitrarias. Solo se usan como `detail` los mensajes de negocio propios (`ValueError` de los servicios, `StockError`, `CajaError`, `UsuarioError`); cualquier otra excepción se deja propagar a los handlers globales.
 - `HTTPException` y los errores de validación (422) conservan el comportamiento estándar de FastAPI.
 - Las respuestas 500 del handler genérico las emite la capa externa de Starlette, por fuera de `CORSMiddleware`, por lo que no llevan headers CORS.
 
@@ -397,7 +434,7 @@ Se invocan con `supabase.rpc(nombre, params).execute()`. Toda la lógica de dine
 
 ### Base URL: `http://127.0.0.1:8000/api/v1`
 
-Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requieren `Authorization: Bearer <supabase_jwt>`. En las tablas, **Auth** indica: ✅ = sesión válida, 🔒 = solo admin (`RoleChecker(["admin"])`).
+Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requieren `Authorization: Bearer <supabase_jwt>`. En las tablas, **Auth** indica: ✅ = cualquier usuario activo con sesión válida, 🔒 = solo admin (`RoleChecker(["admin"])`, 403 para el resto). Un usuario inactivo recibe 403 en todos.
 
 ---
 
@@ -405,13 +442,13 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
-| GET | `/` | ✅ | Lista **todo** el catálogo con sus variantes (el POS lo filtra en el cliente), ordenado por `nombre`. Query param opcional: `?categoria_id=<int>`. Sin `limit`/`offset`: el servicio pagina internamente |
-| GET | `/sku/{sku}` | ✅ | Busca un producto por SKU de variante. Retorna 404 si no existe |
-| POST | `/` | ✅ | Crea un producto nuevo |
-| PATCH | `/{id}` | ✅ | Actualiza nombre/descripción/marca de un producto |
-| POST | `/variante` | ✅ | Crea una variante vinculada a un producto |
-| PATCH | `/variante/{id}` | ✅ | Actualiza una variante (NO incluye stock_actual) |
-| PATCH | `/inventario/stock` | ✅ | Ajusta el stock de una variante (suma/resta `cantidad`) vía RPC `ajustar_stock`. 404 si la variante no existe (`MU004`), 409 si el stock quedaría negativo (`MU002`) |
+| GET | `/` | ✅ | Lista **todo** el catálogo con sus variantes (el POS lo filtra en el cliente), ordenado por `nombre`. Query param opcional: `?categoria_id=<int>`. Sin `limit`/`offset`: el servicio pagina internamente. `precio_costo` es `null` si el usuario no es admin |
+| GET | `/sku/{sku}` | ✅ | Busca un producto por SKU de variante. Retorna 404 si no existe. `precio_costo` es `null` si el usuario no es admin |
+| POST | `/` | 🔒 | Crea un producto nuevo |
+| PATCH | `/{id}` | 🔒 | Actualiza nombre/descripción/marca de un producto |
+| POST | `/variante` | 🔒 | Crea una variante vinculada a un producto |
+| PATCH | `/variante/{id}` | 🔒 | Actualiza una variante (NO incluye stock_actual) |
+| PATCH | `/inventario/stock` | 🔒 | Ajusta el stock de una variante (suma/resta `cantidad`) vía RPC `ajustar_stock`. 404 si la variante no existe (`MU004`), 409 si el stock quedaría negativo (`MU002`) |
 | DELETE | `/variante/{id}` | 🔒 | Elimina una variante. 404 si no existe, 409 si tiene ventas en `venta_detalle` |
 | DELETE | `/{id}` | 🔒 | Elimina un producto con sus variantes y vínculos en `producto_categorias`. 404 si no existe, 409 si alguna variante tiene ventas |
 
@@ -440,6 +477,8 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 ```
 
 > Los modelos de respuesta (`ProductResponse`, `VariantResponse`) no aplican estos límites, para poder listar filas cargadas antes de que existieran.
+> `VariantResponse.precio_costo` es `float | null`: llega `null` para quien no es admin (ver "Costos ocultos para no-admin").
+> `{id}` es un UUID: un valor mal formado responde 422.
 
 **Notas de implementación:**
 - `get_products()` usa RPC `obtener_productos` + `.select("*, variantes:producto_variantes(*)")` para incluir variantes, y recorre el resultado con `fetch_all()` (`.range()` de a 1000 filas, hasta recibir una página vacía) para que PostgREST nunca trunque el catálogo en silencio.
@@ -459,8 +498,8 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 | POST | `/movimiento` | ✅ | Registra un ingreso o egreso manual en la sesión activa. Responde `CajaMovimientoResponse` (misma forma que los listados) |
 | GET | `/movimientos` | ✅ | Lista los movimientos de la sesión activa |
 | POST | `/cierre` | ✅ | Cierra la sesión activa vía RPC `cerrar_caja`. Responde `SesionCajaResponse` (la sesión ya cerrada) |
-| GET | `/sesiones` | ✅ | Lista las sesiones de caja (de todos los usuarios) por `fecha_apertura` desc. Paginado: `?limit=` (default 200, 1..1000) y `?offset=` (>= 0) |
-| GET | `/sesiones/{sesion_id}/movimientos` | ✅ | Lista movimientos de una sesión específica, ordenados por `creado_en` desc |
+| GET | `/sesiones` | 🔒 | Lista las sesiones de caja (de todos los usuarios) por `fecha_apertura` desc. Paginado: `?limit=` (default 200, 1..1000) y `?offset=` (>= 0) |
+| GET | `/sesiones/{sesion_id}/movimientos` | 🔒 | Lista movimientos de una sesión específica, ordenados por `creado_en` desc. `sesion_id` mal formado → 422 |
 
 **Schemas de entrada:**
 
@@ -554,7 +593,7 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 |---|---|---|---|
 | GET | `/` | ✅ | Lista clientes ordenados por `nombre`. Query params opcionales: `?query=<str>` (busca por `nombre` o `dni_cuit` con ilike), `?limit=` (default 1000, 1..1000; el selector de clientes del POS filtra esta lista en el navegador) y `?offset=` (>= 0) |
 | POST | `/` | ✅ | Crea un cliente nuevo |
-| PATCH | `/{id}` | ✅ | Actualiza datos de un cliente. Retorna 404 si no existe |
+| PATCH | `/{id}` | ✅ | Actualiza datos de un cliente. Retorna 404 si no existe, 422 si `id` no es un UUID |
 
 **Schemas de entrada:**
 
@@ -613,13 +652,13 @@ Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
 | GET | `/marcas` | ✅ | Lista marcas ordenadas por nombre |
-| POST | `/marcas` | ✅ | Crea una marca. Los errores de base se mapean globalmente (p. ej. 409 si viola una restricción única) |
-| PATCH | `/marcas/{marca_id}` | ✅ | Actualiza una marca. 404 si no existe |
-| DELETE | `/marcas/{marca_id}` | ✅ | Elimina una marca. 404 si no existe, 400 si hay productos con esa `marca_id` |
+| POST | `/marcas` | 🔒 | Crea una marca. Los errores de base se mapean globalmente (p. ej. 409 si viola una restricción única) |
+| PATCH | `/marcas/{marca_id}` | 🔒 | Actualiza una marca. 404 si no existe |
+| DELETE | `/marcas/{marca_id}` | 🔒 | Elimina una marca. 404 si no existe, 400 si hay productos con esa `marca_id` |
 | GET | `/categorias` | ✅ | Lista categorías ordenadas por nombre |
-| POST | `/categorias` | ✅ | Crea una categoría. Los errores de base se mapean globalmente (p. ej. 409 si viola una restricción única) |
-| PATCH | `/categorias/{categoria_id}` | ✅ | Actualiza una categoría. 404 si no existe |
-| DELETE | `/categorias/{categoria_id}` | ✅ | Elimina una categoría. 404 si no existe, 400 si tiene productos en `producto_categorias` |
+| POST | `/categorias` | 🔒 | Crea una categoría. Los errores de base se mapean globalmente (p. ej. 409 si viola una restricción única) |
+| PATCH | `/categorias/{categoria_id}` | 🔒 | Actualiza una categoría. 404 si no existe |
+| DELETE | `/categorias/{categoria_id}` | 🔒 | Elimina una categoría. 404 si no existe, 400 si tiene productos en `producto_categorias` |
 
 **Schemas de entrada:**
 
@@ -631,7 +670,7 @@ Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY
 { nombre: str, descripcion?: str, tiendanube_id?: str }
 ```
 
-> Las escrituras de catálogos no están restringidas a admin.
+> Las escrituras de catálogos (POST / PATCH / DELETE) son solo admin; las lecturas, para cualquier usuario activo.
 
 ---
 
@@ -639,22 +678,55 @@ Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY
 
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
-| GET | `/me` | ✅ | Devuelve `{ id, email, rol }` del usuario autenticado (sin `response_model`) |
+| GET | `/me` | ✅ | Devuelve `MeResponse` del usuario autenticado: `{ id, email, rol, activo }` |
 | GET | `/` | 🔒 | Lista perfiles con su rol (`perfiles` + `roles(id, nombre)`), ordenados por `created_at` desc |
 | GET | `/roles` | 🔒 | Lista roles (`id`, `nombre`) |
-| PATCH | `/{id}/rol` | 🔒 | Cambia el `rol_id` de un perfil. 404 si no existe |
+| PATCH | `/{id}/rol` | 🔒 | Cambia el `rol_id` de un perfil. Responde `UsuarioResponse` con el rol nuevo |
+| PATCH | `/{id}/activo` | 🔒 | Activa o desactiva un perfil. Responde `UsuarioResponse` |
 
 **Schemas:**
 
 ```python
+# MeResponse
+{ id: str, email?: str, rol: str, activo: bool }
+
 # UsuarioRoleUpdate
 { rol_id: int }
+
+# UsuarioActivoUpdate
+{ activo: bool }   # estricto: solo true / false
 
 # UsuarioResponse
 { id: UUID, nombre: str, apellido?: str, activo: bool, roles?: { id: int, nombre: str }, created_at: datetime }
 ```
 
-> No hay endpoints para crear/desactivar usuarios: el alta se hace en Supabase Auth y el perfil en `perfiles`.
+**Errores de `PATCH /{id}/rol`:**
+
+| Caso | HTTP | `detail` |
+|---|---|---|
+| `id` mal formado o body inválido | 422 | Pydantic |
+| El usuario no existe | 404 | `Usuario no encontrado` |
+| `rol_id` no existe en `roles` | 400 | `El rol indicado no existe` |
+| Un admin se quita a sí mismo el rol de admin | 409 | `No podés quitarte el rol de administrador` |
+| El cambio dejaría cero administradores activos | 409 | `Debe quedar al menos un administrador activo` |
+
+**Errores de `PATCH /{id}/activo`:**
+
+| Caso | HTTP | `detail` |
+|---|---|---|
+| `id` mal formado o body inválido | 422 | Pydantic |
+| El usuario no existe | 404 | `Usuario no encontrado` |
+| Un admin se desactiva a sí mismo | 409 | `No podés desactivar tu propio usuario` |
+| Se desactivaría al último administrador activo | 409 | `Debe quedar al menos un administrador activo` |
+
+**Notas de implementación:**
+- Las reglas viven en `UsuarioService.update_rol()` / `set_activo()` y se lanzan como `UsuarioError` (handler global en `main.py`).
+- "Administrador activo" = perfil con `activo = true` y el rol `admin`. La verificación busca otro perfil activo con ese rol distinto del usuario afectado.
+- ⚠️ La verificación del último administrador es una lectura seguida de una escritura (no es atómica): dos pedidos simultáneos podrían pasarla a la vez. Para cerrarlo haría falta una función SQL.
+- Después de un cambio exitoso, el endpoint llama a `invalidate_user(id)` (el cambio aplica en el próximo request del usuario) y registra la auditoría (`UPDATE_ROL` / `UPDATE_ACTIVO`, entidad `perfiles`).
+- Un usuario desactivado recibe 403 `Usuario inactivo` en toda la API.
+
+> No hay endpoint para crear usuarios: el alta se hace en Supabase Auth y el perfil en `perfiles`.
 
 ---
 
@@ -670,7 +742,7 @@ Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY
 | 6 | `caja_service.py` | ✅ **Por diseño (confirmado)** | La caja es global: una única sesión abierta para todos los usuarios, garantizada por un índice único. |
 | 7 | `endpoints/caja.py` | ✅ **Resuelto** | `POST /caja/apertura` tomaba `usuario_id` del body. Ahora usa `current_user.id` e ignora el del body. |
 | 8 | `endpoints/caja.py` | ✅ **Resuelto** | `POST /caja/movimiento` ahora usa `CajaMovimientoResponse` (`descripcion`/`created_at`), igual que los listados. |
-| 9 | `auth_deps.py` | ℹ️ Menor | El cache de tokens (5 min) demora la aplicación de cambios de rol y no se comparte entre workers. |
+| 9 | `auth_deps.py` | ✅ **Resuelto** | El cache de tokens no tenía límite y duraba 5 min. Ahora es un `TTLCache` acotado (1024 entradas, 60 s) con `invalidate_user()` al cambiar rol o estado. Sigue siendo por proceso (no se comparte entre workers). |
 | 10 | `productos` | ℹ️ Falta feature | No hay forma de asignar categorías a un producto vía API. |
 | 11 | `venta_service.py` | ✅ **Resuelto** | `crear_venta()` confiaba en `precio_unitario` y en el total enviados por el cliente. Ahora los precios salen de la base (RPC `crear_venta`) y hay idempotencia por header `Idempotency-Key`. |
 | 12 | `caja_service.py` | ✅ **Resuelto** | El cierre usaba la RPC `finalizar_cierre_caja`, que tenía errores. Ahora usa `cerrar_caja`. |
@@ -679,6 +751,12 @@ Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY
 | 15 | `reporte_service.py` | ✅ **Resuelto** | Los reportes agregaban en memoria con varias consultas, expuestas al tope de 1000 filas. Ahora son funciones SQL. |
 | 16 | varios listados | ✅ **Resuelto** | PostgREST truncaba en 1000 filas sin avisar. `GET /productos/` y `GET /ventas/hoy` paginan internamente; `GET /clientes/` y `GET /caja/sesiones` aceptan `limit`/`offset`. |
 | 17 | `caja_service.py` | ℹ️ Menor | `GET /caja/movimientos` y `GET /caja/sesiones/{id}/movimientos` no paginan: una sesión con más de 1000 movimientos se truncaría. |
+| 18 | varios endpoints | ✅ **Resuelto** | Las escrituras de productos, variantes, stock y catálogos, y el historial de sesiones de caja, solo exigían sesión válida. Ahora son solo admin (ver "Matriz de roles"). |
+| 19 | `endpoints/productos.py` | ✅ **Resuelto** | `precio_costo` se devolvía a cualquier usuario. Ahora solo lo ve un admin. |
+| 20 | `auth_deps.py` | ✅ **Resuelto** | `perfiles.activo` no se consultaba: un usuario desactivado seguía operando. Ahora recibe 403 `Usuario inactivo`. |
+| 21 | `endpoints/usuarios.py` | ✅ **Resuelto** | `PATCH /usuarios/{id}/rol` no validaba el rol, permitía que un admin se quitara su propio rol o dejara el sistema sin administradores, y no dejaba auditoría. No había forma de desactivar un usuario por API. |
+| 22 | varios endpoints | ✅ **Resuelto** | Los ids UUID de la URL eran `str`: un valor mal formado llegaba a PostgREST (error `22P02`). Ahora se validan como `uuid.UUID` (422). |
+| 23 | `usuario_service.py` | ℹ️ Menor | La verificación del último administrador activo no es atómica (lectura + escritura). |
 
 ---
 
@@ -720,3 +798,5 @@ CI (`.github/workflows/ci.yml`) ejecuta `ruff check .` y `pytest -q` en cada pus
 10. **Entrada vs. respuesta:** las validaciones (longitudes, rangos, `Literal`, `EmailStr`) van en los modelos de entrada; los de respuesta quedan sin restricciones.
 11. **Zona horaria:** los cálculos de "día" usan `app/core/timeutils.py` (Argentina), nunca la hora local del servidor.
 12. **TDD:** todo comportamiento nuevo lleva su test en `tests/` (los servicios o el cliente `supabase` se reemplazan con mocks o con `tests/fakes.py::FakeSupabase`; `get_current_user` con `app.dependency_overrides`).
+13. **Autorización:** toda ruta nueva se agrega a la "Matriz de roles" y a `tests/test_authz.py`. Lo que solo puede hacer un admin usa `Depends(RoleChecker(["admin"]))`; nunca se confía en que el frontend oculte la opción.
+14. **Ids UUID en la URL:** tiparlos como `uuid.UUID` y pasar `str(id)` al servicio.
