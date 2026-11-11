@@ -24,7 +24,8 @@ El frontend (`pos-mu` — Next.js) consume esta API a través de un proxy intern
 | Lenguaje | Python 3.12+ |
 | Base de datos | Supabase (PostgreSQL 17) |
 | Cliente DB | `supabase-py` (Supabase Python Client) |
-| Validación | Pydantic v2 |
+| Validación | Pydantic v2 (+ `email-validator` para `EmailStr`) |
+| Zona horaria | `zoneinfo` + `tzdata` (America/Argentina/Buenos_Aires) |
 | Config | `pydantic-settings` (.env) |
 | Auth | Supabase Auth (JWT Bearer tokens) |
 | Servidor | Uvicorn |
@@ -66,7 +67,9 @@ app/
 ├── core/
 │   ├── config.py                  # Settings (pydantic-settings, lee .env)
 │   ├── supabase.py                # Singleton del cliente Supabase
-│   └── exceptions.py              # Excepciones custom: StockError, CajaError
+│   ├── db_utils.py                # fetch_all (paginado interno con .range()) y single_row (resultado de RPC)
+│   ├── timeutils.py               # Zona horaria de negocio (America/Argentina/Buenos_Aires) y límites del día local
+│   └── exceptions.py              # Excepciones custom: StockError (legado), CajaError (con status_code)
 ├── api/
 │   ├── auth_deps.py               # get_current_user (valida token + rol) y RoleChecker
 │   └── v1/
@@ -80,7 +83,7 @@ app/
 │           └── usuarios.py        # Rutas de usuarios y roles
 ├── schemas/
 │   ├── productos.py               # Pydantic models: ProductCreate/Update/Response, VariantCreate/Update/Response, StockUpdate
-│   ├── caja.py                    # Pydantic models: CajaApertura, CajaMovimiento, CajaCierre, SesionCajaResponse, CajaMovimientoResponse
+│   ├── caja.py                    # Pydantic models: CajaApertura, CajaMovimiento, CajaCierre, SesionCajaResponse, CajaMovimientoResponse, CajaResumenResponse
 │   ├── ventas.py                  # Pydantic models: VentaCreate, VentaItem, VentaResponse
 │   ├── clientes.py                # Pydantic models: ClienteCreate/Update/Response
 │   ├── reportes.py                # Pydantic models: VentasTotalesReporte, ProductoTopReporte, CajaResumenReporte
@@ -91,7 +94,7 @@ app/
 │   ├── caja_service.py            # Lógica de negocio de caja
 │   ├── venta_service.py           # Lógica de negocio de ventas
 │   ├── cliente_service.py         # Lógica de negocio de clientes
-│   ├── reporte_service.py         # Lógica de reportes (agregaciones en memoria)
+│   ├── reporte_service.py         # Reportes: delega en las funciones SQL reporte_*
 │   ├── catalogo_service.py        # CRUD de marcas y categorías
 │   ├── usuario_service.py         # Lectura de perfiles/roles y cambio de rol
 │   └── log_service.py             # Auditoría: inserta en tabla `logs` (BackgroundTask)
@@ -103,8 +106,14 @@ tests/
 ├── test_settings.py               # Settings: defaults, parseo de CORS, validaciones
 ├── test_health.py                 # /health y /health/ready
 ├── test_cors.py                   # Preflight CORS (origen permitido / desconocido)
-├── test_error_handling.py         # Mapeo de APIError, 500 genérico, errores de catálogos
-└── test_auth_deps.py              # get_current_user: 401 sin filtrar detalles
+├── fakes.py                       # FakeSupabase: cliente falso que registra las consultas y devuelve respuestas en cola
+├── test_error_handling.py         # Mapeo de APIError (incluye códigos MU00x), 500 genérico, errores de catálogos
+├── test_auth_deps.py              # get_current_user: 401 sin filtrar detalles
+├── test_ventas.py                 # RPC crear_venta, Idempotency-Key, validaciones, /ventas/hoy (día de Argentina, paginado)
+├── test_caja.py                   # Apertura (usuario del token, 409), cierre (cerrar_caja), resumen, movimientos, paginado
+├── test_productos.py              # ajustar_stock, validaciones de productos/variantes, paginado interno del catálogo
+├── test_clientes.py               # Validaciones, saneado de búsqueda, paginado
+└── test_reportes.py               # Reportes vía RPC, límite de productos-top, solo admin
 .github/workflows/ci.yml           # CI: ruff + pytest en cada push / PR
 pyproject.toml                     # Configuración de ruff y pytest
 requirements.txt                   # Dependencias de ejecución (versiones fijadas)
@@ -127,7 +136,7 @@ README.md                          # Instalación, ejecución, tests y lint
   - `/usuarios/*` (excepto `/usuarios/me`)
   - `DELETE /productos/{id}` y `DELETE /productos/variante/{id}`
 - El resto de los endpoints solo exige `Depends(get_current_user)` (incluidas las escrituras de catálogos).
-- **⚠️ Nota caja:** El endpoint `POST /api/v1/caja/apertura` usa `datos.usuario_id` del body en lugar de `current_user.id` para determinar el usuario de la sesión.
+- **Caja:** `POST /api/v1/caja/apertura` toma el usuario de la sesión de `current_user.id` (token). Si el body trae `usuario_id`, se ignora.
 
 ## Auditoría (`logs`)
 
@@ -150,17 +159,33 @@ Definidos en `main.py`.
 
 | Excepción | HTTP Status | `detail` |
 |---|---|---|
-| `StockError` | 400 | Mensaje de negocio (stock insuficiente o variante no encontrada) |
-| `CajaError` | 400 | Mensaje de negocio (no hay caja abierta, o ya existe una abierta) |
+| `StockError` | 400 | Mensaje de negocio. Legado: ya no se lanza desde los servicios (el stock lo valida la base, ver códigos `MU00x`) |
+| `CajaError` | `exc.status_code` (400 por defecto) | Mensaje de negocio: 400 `No hay sesión de caja abierta.`, 409 `Ya existe una sesión de caja abierta.` |
 | `postgrest.APIError` código `23505` | 409 | `Conflicto: el registro ya existe` |
 | `postgrest.APIError` código `23503` | 409 | `Conflicto: el registro está referenciado por otros datos` |
 | `postgrest.APIError` código `PGRST116` | 404 | `Recurso no encontrado` |
 | `postgrest.APIError` código `22P02` | 400 | `Dato inválido` |
+| `postgrest.APIError` código `23514` (CHECK) | 400 | `Dato fuera de rango` |
+| `postgrest.APIError` código `MU00x` | ver tabla siguiente | El mensaje de la base (propio, en español) |
 | `postgrest.APIError` (otro código) | 500 | `Error interno del servidor` |
 | `Exception` no manejada | 500 | `Error interno del servidor` |
 
+**Códigos de negocio de la base (`MU00x`)**
+
+Los lanzan las funciones SQL propias (`crear_venta`, `cerrar_caja`, `ajustar_stock`, ...). Llegan como `APIError.code` y se mapean en `DB_BUSINESS_ERROR_STATUS` (`main.py`). Su `message` lo escribimos nosotros, por eso es el único caso en que el mensaje de la base se devuelve como `detail`.
+
+| Código | HTTP Status | Significado |
+|---|---|---|
+| `MU001` | 400 | No hay sesión de caja abierta |
+| `MU002` | 409 | Stock insuficiente / el stock quedaría negativo |
+| `MU003` | 400 | Datos de entrada inválidos |
+| `MU004` | 404 | Recurso no encontrado (variante, sesión, ...) |
+| `MU005` | 409 | La sesión de caja ya está cerrada |
+
+Un código `MU` no listado se trata como cualquier otro error desconocido (500 genérico).
+
 **Reglas:**
-- El error real (código, mensaje y detalles de PostgREST, o el traceback) se registra con `logging` en el servidor y **nunca** se incluye en la respuesta.
+- El error real (código, mensaje y detalles de PostgREST, o el traceback) se registra con `logging` en el servidor y **nunca** se incluye en la respuesta, salvo el `message` de los códigos `MU00x` listados arriba.
 - Los endpoints no deben devolver `str(e)` de excepciones arbitrarias. Solo se usan como `detail` los mensajes de negocio propios (`ValueError` de los servicios, `StockError`, `CajaError`); cualquier otra excepción se deja propagar a los handlers globales.
 - `HTTPException` y los errores de validación (422) conservan el comportamiento estándar de FastAPI.
 - Las respuestas 500 del handler genérico las emite la capa externa de Starlette, por fuera de `CORSMiddleware`, por lo que no llevan headers CORS.
@@ -169,10 +194,6 @@ Definidos en `main.py`.
 
 - `CORSMiddleware` con orígenes de `CORS_ORIGINS`, `allow_credentials=False`, métodos `GET, POST, PUT, PATCH, DELETE, OPTIONS` y headers `Authorization, Content-Type, Idempotency-Key`. Un preflight desde un origen no listado recibe 400.
 - Logging estándar (`logging.basicConfig`) con el nivel de `LOG_LEVEL`.
-
----|---|---|
-| `StockError` | 400 | Stock insuficiente o variante no encontrada |
-| `CajaError` | 400 | No hay caja abierta, o ya existe una abierta |
 
 ---
 
@@ -292,7 +313,7 @@ Todas las tablas tienen **RLS habilitado sin políticas**: solo la clave secreta
 | `monto_apertura` | numeric | default 0 |
 | `monto_esperado_efectivo` | numeric | nullable, default 0 — calculado al cierre |
 | `monto_real_efectivo` | numeric | nullable — ingresado al cierre |
-| `estado` | text | check: `'abierta'` \| `'cerrada'` |
+| `estado` | text | check: `'abierta'` \| `'cerrada'`. Un índice único parcial permite **una sola** sesión `'abierta'` |
 | `observaciones` | text | nullable |
 
 #### `movimientos_caja`
@@ -351,12 +372,24 @@ Todas las tablas tienen **RLS habilitado sin políticas**: solo la clave secreta
 | `usuario_id` | uuid | nullable, FK → `perfiles.id` |
 | `created_at` | timestamptz | |
 
-### RPCs (Funciones de Supabase)
+### Funciones de base de datos
 
-| Función | Parámetros | Descripción |
-|---|---|---|
-| `obtener_productos` | `p_categoria_id?` (int) | Retorna productos filtrados por categoría |
-| `finalizar_cierre_caja` | `p_sesion_id`, `p_monto_real_efectivo`, `p_observaciones` | Cierra la sesión de caja y guarda el monto real |
+Se invocan con `supabase.rpc(nombre, params).execute()`. Toda la lógica de dinero y stock vive acá para que sea atómica (una transacción, con bloqueo de filas). Los errores de negocio se lanzan con códigos `MU00x` (ver "Health y manejo de errores").
+
+| Función | Parámetros | Retorna | Descripción |
+|---|---|---|---|
+| `crear_venta` | `p_usuario_id` uuid, `p_metodo_pago` text, `p_items` jsonb `[{variante_id, cantidad}]`, `p_cliente_id?` uuid, `p_idempotency_key?` text | fila de `ventas` | Venta atómica: bloquea filas, toma precios y costos de la base, unifica variantes repetidas, descuenta stock, escribe `venta_detalle`. La misma clave de idempotencia devuelve la venta original |
+| `cerrar_caja` | `p_sesion_id` uuid, `p_monto_real_efectivo` numeric, `p_observaciones` text | fila de `sesiones_caja` | Bloquea la sesión, calcula el efectivo esperado (apertura + ventas en efectivo + ingresos − egresos) y la cierra |
+| `resumen_caja` | `p_sesion_id` uuid | jsonb | `{sesion_id, estado, fecha_apertura, monto_apertura, ventas_efectivo, ventas_tarjeta, ventas_qr, cantidad_ventas, ingresos, egresos, esperado_efectivo}` |
+| `ajustar_stock` | `p_variante_id` uuid, `p_cantidad` int | fila de `producto_variantes` | Suma el delta al stock de forma atómica; falla con `MU002` si quedaría negativo |
+| `reporte_ventas` | `p_desde` date, `p_hasta` date | jsonb | `{total_ingresos, cantidad_operaciones, ventas_por_dia: [{fecha, total, cantidad_ventas}]}` |
+| `reporte_productos_top` | `p_desde` date, `p_hasta` date, `p_limite` int = 50 | setof | `(variante_id, nombre_producto, talle, color, cantidad_vendida, ingresos_generados)` |
+| `reporte_cajas` | `p_desde` date, `p_hasta` date | jsonb | `{resumen_diario: [{fecha, sesiones_abiertas, monto_inicial_total, ventas_efectivo, ingresos, egresos, monto_real_efectivo_total, diferencia_esperado_vs_real}], diferencia_total_periodo}` |
+| `obtener_productos` | `p_categoria_id?` int | setof `productos` | Productos, opcionalmente filtrados por categoría |
+
+- Los tres `reporte_*` agrupan por **fecha local de Argentina**; un parámetro de fecha `null` deja ese extremo sin límite.
+- `finalizar_cierre_caja` (anterior RPC de cierre) tenía errores, **ya no se usa** y será eliminada.
+- La base también tiene restricciones `CHECK` (error `23514` → 400) y el índice único de sesión abierta (`23505` → 409).
 
 ---
 
@@ -372,13 +405,13 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
-| GET | `/` | ✅ | Lista todos los productos con sus variantes. Query param opcional: `?categoria_id=<int>` |
+| GET | `/` | ✅ | Lista **todo** el catálogo con sus variantes (el POS lo filtra en el cliente), ordenado por `nombre`. Query param opcional: `?categoria_id=<int>`. Sin `limit`/`offset`: el servicio pagina internamente |
 | GET | `/sku/{sku}` | ✅ | Busca un producto por SKU de variante. Retorna 404 si no existe |
 | POST | `/` | ✅ | Crea un producto nuevo |
 | PATCH | `/{id}` | ✅ | Actualiza nombre/descripción/marca de un producto |
 | POST | `/variante` | ✅ | Crea una variante vinculada a un producto |
 | PATCH | `/variante/{id}` | ✅ | Actualiza una variante (NO incluye stock_actual) |
-| PATCH | `/inventario/stock` | ✅ | Ajusta el stock de una variante (suma/resta `cantidad`) |
+| PATCH | `/inventario/stock` | ✅ | Ajusta el stock de una variante (suma/resta `cantidad`) vía RPC `ajustar_stock`. 404 si la variante no existe (`MU004`), 409 si el stock quedaría negativo (`MU002`) |
 | DELETE | `/variante/{id}` | 🔒 | Elimina una variante. 404 si no existe, 409 si tiene ventas en `venta_detalle` |
 | DELETE | `/{id}` | 🔒 | Elimina un producto con sus variantes y vínculos en `producto_categorias`. 404 si no existe, 409 si alguna variante tiene ventas |
 
@@ -386,28 +419,32 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 
 ```python
 # ProductCreate
-{ nombre: str, descripcion?: str, marca_id?: int }
+{ nombre: str (1..120), descripcion?: str (max 1000), marca_id?: int }
 
 # ProductUpdate
-{ nombre?: str, descripcion?: str, marca_id?: int }
+{ nombre?: str (1..120), descripcion?: str (max 1000), marca_id?: int }
 
 # VariantCreate
-{ producto_id: UUID, sku?: str, talle?: str, color?: str, precio_venta: float,
-  stock_actual?: int=0, stock_minimo?: int=0, precio_costo?: float=0 }
+{ producto_id: UUID, sku?: str (max 64), talle?: str (max 20), color?: str (max 40),
+  precio_venta: float >= 0, precio_costo?: float >= 0 (=0),
+  stock_actual?: int >= 0 (=0), stock_minimo?: int >= 0 (=0) }
 
 # VariantUpdate
-{ sku?: str, talle?: str, color?: str, precio_venta?: float, precio_costo?: float, stock_minimo?: int }
+{ sku?: str (max 64), talle?: str (max 20), color?: str (max 40),
+  precio_venta?: float >= 0, precio_costo?: float >= 0, stock_minimo?: int >= 0 }
 # ⚠️ stock_actual NO está en VariantUpdate (no se puede editar por PATCH de variante)
 
 # StockUpdate
-{ variante_id: UUID, cantidad: int, motivo: str }
-# cantidad puede ser negativo para reducir stock
+{ variante_id: UUID, cantidad: int != 0, motivo: str (1..200) }
+# cantidad es un delta: negativo para reducir stock. motivo solo se guarda en la auditoría (`logs`)
 ```
 
+> Los modelos de respuesta (`ProductResponse`, `VariantResponse`) no aplican estos límites, para poder listar filas cargadas antes de que existieran.
+
 **Notas de implementación:**
-- `get_products()` usa RPC `obtener_productos` luego hace `.select("*, variantes:producto_variantes(*)")` para incluir variantes.
+- `get_products()` usa RPC `obtener_productos` + `.select("*, variantes:producto_variantes(*)")` para incluir variantes, y recorre el resultado con `fetch_all()` (`.range()` de a 1000 filas, hasta recibir una página vacía) para que PostgREST nunca trunque el catálogo en silencio.
 - `get_product_by_sku()` primero busca la variante por SKU → obtiene `producto_id` → carga el producto completo con variantes.
-- `update_stock()` verifica que el nuevo stock no sea negativo antes de actualizar. Lanza `StockError` si hay problema. ⚠️ Usa read-modify-write (select + update), no es atómico.
+- `update_stock()` llama a la RPC `ajustar_stock` (atómica). Ya no hay read-modify-write en Python.
 - `ProductCreate`/`ProductResponse` no incluyen categorías: la tabla `producto_categorias` solo se lee (filtro `?categoria_id=`) y se limpia al borrar un producto; no hay endpoint para asignar categorías.
 
 ---
@@ -417,30 +454,50 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
 | GET | `/estado` | ✅ | Retorna la sesión de caja abierta (global). Retorna `null` si no hay ninguna |
-| POST | `/apertura` | ✅ | Abre una nueva sesión de caja. Usa `usuario_id` del body |
-| POST | `/movimiento` | ✅ | Registra un ingreso o egreso manual en la sesión activa. Sin `response_model`: devuelve la fila cruda (`motivo`, `creado_en`) |
+| GET | `/resumen` | ✅ | Totales en vivo de la sesión abierta (RPC `resumen_caja`). Retorna `null` (200) si no hay ninguna |
+| POST | `/apertura` | ✅ | Abre una nueva sesión de caja a nombre del usuario del token. 409 si ya hay una abierta |
+| POST | `/movimiento` | ✅ | Registra un ingreso o egreso manual en la sesión activa. Responde `CajaMovimientoResponse` (misma forma que los listados) |
 | GET | `/movimientos` | ✅ | Lista los movimientos de la sesión activa |
-| POST | `/cierre` | ✅ | Cierra la sesión activa vía RPC `finalizar_cierre_caja` |
-| GET | `/sesiones` | ✅ | Lista todas las sesiones de caja (todas, no solo del usuario) ordenadas por fecha desc |
+| POST | `/cierre` | ✅ | Cierra la sesión activa vía RPC `cerrar_caja`. Responde `SesionCajaResponse` (la sesión ya cerrada) |
+| GET | `/sesiones` | ✅ | Lista las sesiones de caja (de todos los usuarios) por `fecha_apertura` desc. Paginado: `?limit=` (default 200, 1..1000) y `?offset=` (>= 0) |
 | GET | `/sesiones/{sesion_id}/movimientos` | ✅ | Lista movimientos de una sesión específica, ordenados por `creado_en` desc |
 
 **Schemas de entrada:**
 
 ```python
 # CajaApertura
-{ monto_apertura: float, usuario_id: UUID }
+{ monto_apertura: float >= 0 }
+# `usuario_id` (UUID) todavía se acepta por compatibilidad, pero se IGNORA: el dueño es el usuario del token
 
 # CajaMovimiento
-{ tipo: 'ingreso'|'egreso', monto: float, motivo: str }
+{ tipo: 'ingreso'|'egreso', monto: float > 0, motivo: str (1..200, sin espacios sobrantes) }
 
 # CajaCierre
-{ monto_real_efectivo: float, observaciones?: str }
+{ monto_real_efectivo: float >= 0, observaciones?: str (max 500) }
 ```
 
-**⚠️ Notas importantes:**
-- `monto_esperado_efectivo` en `sesiones_caja` lo calcula la RPC `finalizar_cierre_caja`, no la API Python.
-- `movimientos_caja.creado_en` (no `created_at`) → el schema `CajaMovimientoResponse` mapea con `Field(validation_alias='creado_en')`.
-- **La caja es global:** `CajaService.get_sesion_activa()` ignora el `usuario_id` y devuelve la primera sesión con `estado = 'abierta'`. Solo puede haber una sesión abierta en todo el sistema; intentar abrir otra lanza `CajaError`. Movimientos, cierre y ventas usan esa misma sesión sin importar qué usuario la abrió.
+**Schemas de respuesta:**
+
+```python
+# SesionCajaResponse (estado, apertura, cierre, sesiones)
+{ id, usuario_id, fecha_apertura, fecha_cierre?, monto_apertura, monto_esperado_efectivo?,
+  monto_real_efectivo?, estado, observaciones? }
+
+# CajaMovimientoResponse (POST /movimiento y listados)
+{ id, sesion_id, tipo, monto, descripcion, created_at }
+
+# CajaResumenResponse (GET /resumen)
+{ sesion_id: UUID, estado: str, fecha_apertura: datetime, monto_apertura: float,
+  ventas_efectivo: float, ventas_tarjeta: float, ventas_qr: float, cantidad_ventas: int,
+  ingresos: float, egresos: float, esperado_efectivo: float }
+# esperado_efectivo = monto_apertura + ventas_efectivo + ingresos - egresos
+```
+
+**Notas importantes:**
+- **La caja es global (decisión de negocio):** hay una sola caja para todos los usuarios. `CajaService.get_sesion_activa()` devuelve la única sesión con `estado = 'abierta'`; un **índice único** en la base garantiza que no haya dos. Movimientos, cierre, resumen y ventas usan esa sesión sin importar quién la abrió.
+- **Apertura:** el `usuario_id` sale del token. Si ya hay una sesión abierta responde 409 `Ya existe una sesión de caja abierta.`, tanto por la verificación previa como si dos pedidos compiten y el índice único rechaza el insert (`23505`).
+- **Cierre:** `monto_esperado_efectivo` lo calcula `cerrar_caja` (apertura + ventas en efectivo + ingresos − egresos), con la sesión bloqueada. Sin sesión abierta → 400; sesión ya cerrada → 409 (`MU005`).
+- `movimientos_caja` usa `motivo` y `creado_en`; `CajaMovimientoResponse` los expone como `descripcion` y `created_at` (`validation_alias`), también en la respuesta de `POST /movimiento`.
 
 ---
 
@@ -448,33 +505,46 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
-| POST | `/` | ✅ | Crea una venta completa (verifica stock, inserta venta + detalle, descuenta stock) |
-| GET | `/hoy` | ✅ | Retorna todas las ventas creadas hoy (filtra por `created_at >= hoy`) |
+| POST | `/` | ✅ | Crea una venta completa de forma atómica (RPC `crear_venta`) |
+| GET | `/hoy` | ✅ | Ventas del día actual **en Argentina**. Devuelve solo `id`, `created_at`, `total`, `metodo_pago` |
 
 **Schema de entrada:**
 
 ```python
 # VentaCreate
 {
-  items: [{ variante_id: UUID, cantidad: int, precio_unitario: float }],
-  metodo_pago: str,
+  items: [{ variante_id: UUID, cantidad: int (1..1000) }],   # entre 1 y 200 items
+  metodo_pago: 'Efectivo' | 'Tarjeta' | 'QR',
   cliente_id?: UUID
 }
+# Header opcional: Idempotency-Key: <str, máx 100 caracteres>
 ```
 
-**Flujo interno de `crear_venta()`:**
-1. Verifica que haya una sesión de caja abierta (global) → `CajaError` si no.
-2. Para cada item: verifica stock disponible y lee `precio_costo` → `StockError` si insuficiente. Calcula subtotal y `costo_unitario`.
-3. Calcula `total_costo` como suma de `costo_unitario × cantidad`.
-4. Inserta en `ventas` (con `usuario_id`, `sesion_caja`, `total`, `total_costo`, `metodo_pago`, `cliente_id`).
-5. Inserta cada item en `venta_detalle` con su `costo_unitario`.
-6. Descuenta stock de `producto_variantes` por cada item.
+- `items[].precio_unitario` todavía se acepta por compatibilidad pero se **IGNORA**; cualquier otro campo extra (p. ej. `total`) también. Precios, costos y total salen siempre de la base.
+- **Respuesta (`VentaResponse`):** `{ id, created_at, total, metodo_pago }`. `total_costo` nunca se expone.
 
-**⚠️ Notas:**
-- El descuento de stock se hace en dos queries por item (select + update), sin transacción: race condition con ventas concurrentes, y una falla a mitad de camino deja la venta parcialmente aplicada.
-- `GET /hoy` calcula "hoy" con la fecha local del servidor, no con una zona horaria explícita.
-- `venta_detalle.subtotal` es columna generada en DB (`cantidad * precio_unitario`), no se envía desde la API.
-- El campo `fecha` en `ventas` es redundante con `created_at`; la query de "hoy" filtra por `created_at`.
+**Flujo de `crear_venta()`:**
+1. El endpoint lee el header `Idempotency-Key` (se recortan espacios; vacío = sin clave). Más de 100 caracteres → 400.
+2. `VentaService.crear_venta()` llama a la RPC `crear_venta` con `p_usuario_id` = usuario del token, `p_metodo_pago`, `p_items` = `[{variante_id, cantidad}]`, `p_cliente_id` y `p_idempotency_key`.
+3. La función, en una sola transacción: verifica la sesión de caja abierta, bloquea las variantes, toma `precio_venta`/`precio_costo` de la base, unifica variantes repetidas, descuenta stock, inserta `ventas` y `venta_detalle`, y devuelve la fila de `ventas`.
+4. Reintentar con la misma `Idempotency-Key` devuelve la venta original en lugar de crear otra.
+5. El endpoint registra la auditoría (`CREATE_VENTA`) como `BackgroundTask`.
+
+**Errores:**
+
+| Caso | HTTP | Origen |
+|---|---|---|
+| Body inválido (`metodo_pago` desconocido, sin items, `cantidad` fuera de 1..1000, UUID inválido, más de 200 items) | 422 | Pydantic |
+| `Idempotency-Key` de más de 100 caracteres | 400 | Endpoint |
+| No hay sesión de caja abierta | 400 | `MU001` |
+| Datos inválidos detectados por la base | 400 | `MU003` |
+| Variante inexistente | 404 | `MU004` |
+| Stock insuficiente | 409 | `MU002` |
+
+**Notas:**
+- `GET /hoy` calcula "hoy" en `America/Argentina/Buenos_Aires` (`zoneinfo` + paquete `tzdata`, necesario en Windows) y filtra `created_at >= medianoche local` y `< medianoche local siguiente`, expresadas en UTC. Recorre todas las páginas con `fetch_all()`, sin truncar en 1000 filas.
+- `venta_detalle.subtotal` es columna generada en DB (`cantidad * precio_unitario`).
+- El campo `fecha` en `ventas` es redundante con `created_at`; la consulta de "hoy" filtra por `created_at`.
 
 ---
 
@@ -482,7 +552,7 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
-| GET | `/` | ✅ | Lista clientes. Query param opcional: `?query=<str>` (busca por `nombre` o `dni_cuit` con ilike) |
+| GET | `/` | ✅ | Lista clientes ordenados por `nombre`. Query params opcionales: `?query=<str>` (busca por `nombre` o `dni_cuit` con ilike), `?limit=` (default 1000, 1..1000; el selector de clientes del POS filtra esta lista en el navegador) y `?offset=` (>= 0) |
 | POST | `/` | ✅ | Crea un cliente nuevo |
 | PATCH | `/{id}` | ✅ | Actualiza datos de un cliente. Retorna 404 si no existe |
 
@@ -491,27 +561,32 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 ```python
 # ClienteCreate / ClienteUpdate
 {
-  nombre: str,           # requerido en Create
-  dni_cuit?: str,
-  email?: str,
-  telefono?: str,
-  direccion?: str,
-  ciudad?: str,
-  tipo_iva?: str         # default en DB: 'Consumidor Final'
+  nombre: str (1..120),      # requerido en Create
+  dni_cuit?: str (max 20),
+  email?: EmailStr,          # se valida el formato (paquete email-validator)
+  telefono?: str (max 30),
+  direccion?: str (max 200),
+  ciudad?: str (max 80),
+  tipo_iva?: 'Consumidor Final' | 'Monotributista' | 'Responsable Inscripto' | 'Exento'   # default en DB: 'Consumidor Final'
 }
 ```
+
+**Notas:**
+- Los opcionales en blanco (`""`) se convierten a `null`: en Create no se envían, en Update limpian la columna.
+- `ClienteResponse` no aplica estas validaciones, para poder listar filas anteriores.
+- **Búsqueda:** el término de `?query=` se sanea antes de armar el filtro `or=(...)` de PostgREST (`sanitize_search_term`): solo quedan letras (incluidas acentuadas), dígitos, espacios y guiones; el resto se reemplaza por espacio, se colapsan los espacios y se corta a 50 caracteres. Si no queda nada, se devuelve la lista sin filtrar. Esto evita la inyección de filtros.
 
 ---
 
 ### 📊 Reportes — `/api/v1/reportes`
 
-Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY-MM-DD` (ambos opcionales).
+Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY-MM-DD` (ambos opcionales; sin fecha, ese extremo queda sin límite).
 
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
 | GET | `/ventas` | 🔒 | Total de ingresos, cantidad de operaciones y ventas agrupadas por día |
-| GET | `/productos-top` | 🔒 | Top productos/variantes por ingresos generados en el período |
-| GET | `/cajas` | 🔒 | Resumen de sesiones de caja por día (apertura, ingresos, egresos, diferencia real vs esperado) |
+| GET | `/productos-top` | 🔒 | Top productos/variantes del período. Query param opcional `?limite=` (1..200, default 50) |
+| GET | `/cajas` | 🔒 | Resumen de sesiones de caja por día (apertura, ventas en efectivo, ingresos, egresos, diferencia real vs esperado) |
 
 **Schemas de respuesta:**
 
@@ -523,13 +598,13 @@ Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY
 { variante_id: str, nombre_producto: str, talle?: str, color?: str, cantidad_vendida: int, ingresos_generados: float }
 
 # CajaResumenReporte
-{ resumen_diario: [{ fecha, sesiones_abiertas, monto_inicial_total, ingresos, egresos, monto_real_efectivo_total, diferencia_esperado_vs_real }], diferencia_total_periodo: float }
+{ resumen_diario: [{ fecha, sesiones_abiertas, monto_inicial_total, ventas_efectivo, ingresos, egresos, monto_real_efectivo_total, diferencia_esperado_vs_real }], diferencia_total_periodo: float }
 ```
 
-**⚠️ Notas de implementación:**
-- `obtener_top_productos()` hace múltiples queries en cadena y agrega en memoria. Para producción con volumen alto debería convertirse en una RPC de Supabase.
-- `obtener_top_productos()` consulta `venta_detalle` y `producto_variantes` (bug de nombres de tabla ya resuelto).
-- Los rangos de fecha se comparan como timestamps sin zona horaria.
+**Notas de implementación:**
+- `reporte_service.py` no agrega nada en memoria: cada endpoint llama a una función SQL (`reporte_ventas`, `reporte_productos_top`, `reporte_cajas`) con `p_desde` / `p_hasta` (y `p_limite`).
+- Las funciones agrupan por **fecha local de Argentina**, así que un día del reporte coincide con el día de negocio.
+- Si la función devuelve `null` en una lista o total (período sin datos), el servicio responde `[]` / `0`.
 
 ---
 
@@ -589,14 +664,21 @@ Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY
 |---|---|---|---|
 | 1 | `reporte_service.py` | ✅ **Resuelto** | `obtener_top_productos()` consultaba `venta_items`/`variantes`. Corregido a `venta_detalle`/`producto_variantes`. |
 | 2 | `venta_service.py` | ✅ **Resuelto** | `total_costo` ahora se calcula como suma de `costo_unitario × cantidad` y se persiste en `ventas`. |
-| 3 | `venta_service.py`, `producto_service.py` | ⚠️ Pendiente | El descuento de stock no es atómico (select + update separados, sin transacción). Aplica a `crear_venta()` y a `update_stock()`. |
+| 3 | `venta_service.py`, `producto_service.py` | ✅ **Resuelto** | El descuento de stock no era atómico. Ahora `crear_venta()` y `update_stock()` usan las funciones SQL `crear_venta` y `ajustar_stock` (una transacción, con bloqueo de filas). |
 | 4 | `schemas/caja.py` | ✅ **Resuelto** | `CajaMovimientoResponse` migrado a Pydantic v2 `model_config`. Serialización de `creado_en→created_at` y `motivo→descripcion` verificada. |
 | 5 | `schemas/productos.py` | ✅ **Aclarado** | El campo `color` SÍ existe en `producto_variantes`. El comentario era incorrecto. |
-| 6 | `caja_service.py` | ⚠️ Por diseño / revisar | La caja es global: `get_sesion_activa()` ignora `usuario_id`. |
-| 7 | `endpoints/caja.py` | ⚠️ Pendiente | `POST /caja/apertura` toma `usuario_id` del body en vez de `current_user.id`: un cliente puede abrir la caja a nombre de otro usuario. |
-| 8 | `endpoints/caja.py` | ℹ️ Menor | `POST /caja/movimiento` no tiene `response_model` y devuelve `motivo`/`creado_en`, a diferencia de los listados (`descripcion`/`created_at`). |
+| 6 | `caja_service.py` | ✅ **Por diseño (confirmado)** | La caja es global: una única sesión abierta para todos los usuarios, garantizada por un índice único. |
+| 7 | `endpoints/caja.py` | ✅ **Resuelto** | `POST /caja/apertura` tomaba `usuario_id` del body. Ahora usa `current_user.id` e ignora el del body. |
+| 8 | `endpoints/caja.py` | ✅ **Resuelto** | `POST /caja/movimiento` ahora usa `CajaMovimientoResponse` (`descripcion`/`created_at`), igual que los listados. |
 | 9 | `auth_deps.py` | ℹ️ Menor | El cache de tokens (5 min) demora la aplicación de cambios de rol y no se comparte entre workers. |
 | 10 | `productos` | ℹ️ Falta feature | No hay forma de asignar categorías a un producto vía API. |
+| 11 | `venta_service.py` | ✅ **Resuelto** | `crear_venta()` confiaba en `precio_unitario` y en el total enviados por el cliente. Ahora los precios salen de la base (RPC `crear_venta`) y hay idempotencia por header `Idempotency-Key`. |
+| 12 | `caja_service.py` | ✅ **Resuelto** | El cierre usaba la RPC `finalizar_cierre_caja`, que tenía errores. Ahora usa `cerrar_caja`. |
+| 13 | `venta_service.py`, `reporte_service.py` | ✅ **Resuelto** | "Hoy" usaba la fecha local del servidor y los reportes comparaban timestamps sin zona horaria. Ahora todo se calcula con la fecha local de Argentina. |
+| 14 | `cliente_service.py` | ✅ **Resuelto** | El término de búsqueda se interpolaba sin sanear en el filtro `or=(...)` de PostgREST (inyección de filtros). |
+| 15 | `reporte_service.py` | ✅ **Resuelto** | Los reportes agregaban en memoria con varias consultas, expuestas al tope de 1000 filas. Ahora son funciones SQL. |
+| 16 | varios listados | ✅ **Resuelto** | PostgREST truncaba en 1000 filas sin avisar. `GET /productos/` y `GET /ventas/hoy` paginan internamente; `GET /clientes/` y `GET /caja/sesiones` aceptan `limit`/`offset`. |
+| 17 | `caja_service.py` | ℹ️ Menor | `GET /caja/movimientos` y `GET /caja/sesiones/{id}/movimientos` no paginan: una sesión con más de 1000 movimientos se truncaría. |
 
 ---
 
@@ -631,6 +713,10 @@ CI (`.github/workflows/ci.yml`) ejecuta `ruff check .` y `pytest -q` en cada pus
 3. **`model_dump(exclude_none=True)`** en Creates para no enviar campos nulos a Supabase.
 4. **`model_dump(exclude_unset=True)`** en Updates para solo enviar los campos que el cliente mandó.
 5. **`mode='json'`** en la creación de variantes para serializar UUID4 como string.
-6. **Errores de negocio** se lanzan como `StockError` o `CajaError` y son capturados globalmente en `main.py`.
+6. **Errores de negocio:** los de dinero y stock los lanza la base con códigos `MU00x` (llegan como `APIError`); los de caja detectados en Python se lanzan como `CajaError`. Ambos se capturan globalmente en `main.py`.
 7. **Sin fugas de detalles internos:** no devolver `str(e)` de excepciones no controladas; ver "Health y manejo de errores".
-8. **TDD:** todo comportamiento nuevo lleva su test en `tests/` (los servicios o el cliente `supabase` se reemplazan con mocks; `get_current_user` con `app.dependency_overrides`).
+8. **Dinero y stock en la base:** toda operación que mueva plata o stock se hace en una función SQL atómica (ver "Funciones de base de datos"), nunca con lecturas y escrituras separadas desde Python. Los precios nunca se toman del cliente.
+9. **Listados completos:** si un endpoint debe devolver todo, usar `fetch_all()` (`app/core/db_utils.py`) con un `.order()` determinístico; si no, exponer `limit`/`offset`.
+10. **Entrada vs. respuesta:** las validaciones (longitudes, rangos, `Literal`, `EmailStr`) van en los modelos de entrada; los de respuesta quedan sin restricciones.
+11. **Zona horaria:** los cálculos de "día" usan `app/core/timeutils.py` (Argentina), nunca la hora local del servidor.
+12. **TDD:** todo comportamiento nuevo lleva su test en `tests/` (los servicios o el cliente `supabase` se reemplazan con mocks o con `tests/fakes.py::FakeSupabase`; `get_current_user` con `app.dependency_overrides`).
