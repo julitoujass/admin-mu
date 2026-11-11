@@ -4,7 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 
 from app.api.auth_deps import get_current_user
 from app.schemas.ventas import VentaCreate, VentaResponse
-from app.services.log_service import LogService
+from app.services.audit import audit
 from app.services.venta_service import VentaService
 
 router = APIRouter()
@@ -27,15 +27,15 @@ def crear_venta(
         )
 
     result = VentaService.crear_venta(current_user.id, venta, key)
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="CREATE_VENTA",
-        entidad="ventas",
+    audit(
+        background_tasks,
+        current_user,
+        "CREATE_SALE",
+        "ventas",
         entidad_id=str(result["id"]),
         descripcion=f"Total: ${result['total']}",
-        payload_enviado=venta.model_dump(mode="json"),
-        respuesta_recibida=result,
+        payload=venta.model_dump(mode="json"),
+        respuesta=result,
     )
     return result
 

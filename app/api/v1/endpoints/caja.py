@@ -12,8 +12,8 @@ from app.schemas.caja import (
     CajaResumenResponse,
     SesionCajaResponse,
 )
+from app.services.audit import audit
 from app.services.caja_service import CajaService
-from app.services.log_service import LogService
 
 router = APIRouter()
 
@@ -33,14 +33,14 @@ def get_resumen(current_user=Depends(get_current_user)):
 def abrir_caja(datos: CajaApertura, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
     # The session owner is the authenticated user; any `usuario_id` in the body is ignored.
     result = CajaService.abrir_caja(current_user.id, datos)
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="APERTURA_CAJA",
-        entidad="sesiones_caja",
+    audit(
+        background_tasks,
+        current_user,
+        "OPEN_CAJA",
+        "sesiones_caja",
         entidad_id=str(result["id"]),
-        payload_enviado=datos.model_dump(mode="json"),
-        respuesta_recibida=result,
+        payload=datos.model_dump(mode="json"),
+        respuesta=result,
     )
     return result
 
@@ -50,15 +50,15 @@ def registrar_movimiento(
     datos: CajaMovimiento, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)
 ):
     result = CajaService.registrar_movimiento(datos)
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="MOVIMIENTO_CAJA",
-        entidad="movimientos_caja",
+    audit(
+        background_tasks,
+        current_user,
+        "CASH_MOVEMENT",
+        "movimientos_caja",
         entidad_id=str(result["id"]),
         descripcion=f"{datos.tipo.upper()}: {datos.motivo}",
-        payload_enviado=datos.model_dump(mode="json"),
-        respuesta_recibida=result,
+        payload=datos.model_dump(mode="json"),
+        respuesta=result,
     )
     return result
 
@@ -71,14 +71,14 @@ def get_movimientos(current_user=Depends(get_current_user)):
 @router.post("/cierre", response_model=SesionCajaResponse)
 def cerrar_caja(datos: CajaCierre, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
     result = CajaService.cerrar_caja(datos)
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="CIERRE_CAJA",
-        entidad="sesiones_caja",
+    audit(
+        background_tasks,
+        current_user,
+        "CLOSE_CAJA",
+        "sesiones_caja",
         entidad_id=str(result["id"]),
-        payload_enviado=datos.model_dump(mode="json"),
-        respuesta_recibida=result,
+        payload=datos.model_dump(mode="json"),
+        respuesta=result,
     )
     return result
 

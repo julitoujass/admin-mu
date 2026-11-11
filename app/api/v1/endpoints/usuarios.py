@@ -11,7 +11,7 @@ from app.schemas.usuarios import (
     UsuarioResponse,
     UsuarioRoleUpdate,
 )
-from app.services.log_service import LogService
+from app.services.audit import audit
 from app.services.usuario_service import UsuarioService
 
 router = APIRouter()
@@ -45,14 +45,14 @@ def update_rol(
     usuario = UsuarioService.update_rol(str(id), update.rol_id, current_user.id)
     # The cached session still carries the old role: drop it so the change applies now.
     invalidate_user(id)
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="UPDATE_ROL",
-        entidad="perfiles",
+    audit(
+        background_tasks,
+        current_user,
+        "UPDATE_ROL",
+        "perfiles",
         entidad_id=str(id),
-        payload_enviado=update.model_dump(),
-        respuesta_recibida=usuario,
+        payload=update.model_dump(),
+        respuesta=usuario,
     )
     return usuario
 
@@ -65,13 +65,13 @@ def update_activo(
 ):
     usuario = UsuarioService.set_activo(str(id), update.activo, current_user.id)
     invalidate_user(id)
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="UPDATE_ACTIVO",
-        entidad="perfiles",
+    audit(
+        background_tasks,
+        current_user,
+        "UPDATE_ACTIVO",
+        "perfiles",
         entidad_id=str(id),
-        payload_enviado=update.model_dump(),
-        respuesta_recibida=usuario,
+        payload=update.model_dump(),
+        respuesta=usuario,
     )
     return usuario

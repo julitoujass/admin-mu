@@ -4,16 +4,18 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app.api.auth_deps import RoleChecker, get_current_user
+from app.schemas.common import OkResponse
 from app.schemas.productos import (
     ProductCreate,
     ProductResponse,
     ProductUpdate,
+    StockAdjustResponse,
     StockUpdate,
     VariantCreate,
     VariantResponse,
     VariantUpdate,
 )
-from app.services.log_service import LogService
+from app.services.audit import audit
 from app.services.producto_service import ProductService
 
 router = APIRouter()
@@ -45,48 +47,48 @@ def get_products(categoria_id: Optional[int] = None, current_user = Depends(get_
 def get_product_by_sku(sku: str, current_user = Depends(get_current_user)):
     product = ProductService.get_product_by_sku(sku)
     if not product:
-        raise HTTPException(status_code=404, detail="Product with this SKU not found")
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
     return product if _can_see_costs(current_user) else _without_costs(product)
 
-@router.patch("/inventario/stock")
+@router.patch("/inventario/stock", response_model=StockAdjustResponse)
 def update_stock(update: StockUpdate, background_tasks: BackgroundTasks, current_user = Depends(RoleChecker(["admin"]))):
     result = ProductService.update_stock(update)
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="UPDATE_STOCK",
-        entidad="producto_variantes",
+    audit(
+        background_tasks,
+        current_user,
+        "ADJUST_STOCK",
+        "producto_variantes",
         entidad_id=str(update.variante_id),
-        payload_enviado=update.model_dump(mode="json"),
-        respuesta_recibida=result
+        payload=update.model_dump(mode="json"),
+        respuesta=result,
     )
     return result
 
 @router.post("/", response_model=ProductResponse)
 def create_product(product: ProductCreate, background_tasks: BackgroundTasks, current_user = Depends(RoleChecker(["admin"]))):
     result = ProductService.create_product(product)
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="CREATE",
-        entidad="productos",
+    audit(
+        background_tasks,
+        current_user,
+        "CREATE",
+        "productos",
         entidad_id=str(result["id"]),
-        payload_enviado=product.model_dump(),
-        respuesta_recibida=result
+        payload=product.model_dump(),
+        respuesta=result,
     )
     return result
 
 @router.post("/variante", response_model=VariantResponse)
 def create_variant(variant: VariantCreate, background_tasks: BackgroundTasks, current_user = Depends(RoleChecker(["admin"]))):
     result = ProductService.create_variant(variant)
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="CREATE",
-        entidad="producto_variantes",
+    audit(
+        background_tasks,
+        current_user,
+        "CREATE",
+        "producto_variantes",
         entidad_id=str(result["id"]),
-        payload_enviado=variant.model_dump(mode="json"),
-        respuesta_recibida=result
+        payload=variant.model_dump(mode="json"),
+        respuesta=result,
     )
     return result
 
@@ -94,30 +96,30 @@ def create_variant(variant: VariantCreate, background_tasks: BackgroundTasks, cu
 def update_variant(id: UUID, variant_update: VariantUpdate, background_tasks: BackgroundTasks, current_user = Depends(RoleChecker(["admin"]))):
     variant = ProductService.update_variant(str(id), variant_update)
     if not variant:
-        raise HTTPException(status_code=404, detail="Variant not found")
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="UPDATE",
-        entidad="producto_variantes",
+        raise HTTPException(status_code=404, detail="Variante no encontrada")
+    audit(
+        background_tasks,
+        current_user,
+        "UPDATE",
+        "producto_variantes",
         entidad_id=str(id),
-        payload_enviado=variant_update.model_dump(exclude_unset=True),
-        respuesta_recibida=variant
+        payload=variant_update.model_dump(exclude_unset=True),
+        respuesta=variant,
     )
     return variant
 
-@router.delete("/variante/{id}")
+@router.delete("/variante/{id}", response_model=OkResponse)
 def delete_variant(id: UUID, background_tasks: BackgroundTasks, current_user = Depends(RoleChecker(["admin"]))):
     try:
         deleted = ProductService.delete_variant(str(id))
         if not deleted:
-            raise HTTPException(status_code=404, detail="Variant not found")
-        background_tasks.add_task(
-            LogService.registrar_log,
-            usuario_id=current_user.id,
-            evento="DELETE",
-            entidad="producto_variantes",
-            entidad_id=str(id)
+            raise HTTPException(status_code=404, detail="Variante no encontrada")
+        audit(
+            background_tasks,
+            current_user,
+            "DELETE",
+            "producto_variantes",
+            entidad_id=str(id),
         )
         return {"ok": True}
     except ValueError as e:
@@ -127,30 +129,30 @@ def delete_variant(id: UUID, background_tasks: BackgroundTasks, current_user = D
 def update_product(id: UUID, product_update: ProductUpdate, background_tasks: BackgroundTasks, current_user = Depends(RoleChecker(["admin"]))):
     product = ProductService.update_product(str(id), product_update)
     if not product:
-         raise HTTPException(status_code=404, detail="Product not found")
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="UPDATE",
-        entidad="productos",
+         raise HTTPException(status_code=404, detail="Producto no encontrado")
+    audit(
+        background_tasks,
+        current_user,
+        "UPDATE",
+        "productos",
         entidad_id=str(id),
-        payload_enviado=product_update.model_dump(exclude_unset=True),
-        respuesta_recibida=product
+        payload=product_update.model_dump(exclude_unset=True),
+        respuesta=product,
     )
     return product
 
-@router.delete("/{id}")
+@router.delete("/{id}", response_model=OkResponse)
 def delete_product(id: UUID, background_tasks: BackgroundTasks, current_user = Depends(RoleChecker(["admin"]))):
     try:
         deleted = ProductService.delete_product(str(id))
         if not deleted:
-            raise HTTPException(status_code=404, detail="Product not found")
-        background_tasks.add_task(
-            LogService.registrar_log,
-            usuario_id=current_user.id,
-            evento="DELETE",
-            entidad="productos",
-            entidad_id=str(id)
+            raise HTTPException(status_code=404, detail="Producto no encontrado")
+        audit(
+            background_tasks,
+            current_user,
+            "DELETE",
+            "productos",
+            entidad_id=str(id),
         )
         return {"ok": True}
     except ValueError as e:

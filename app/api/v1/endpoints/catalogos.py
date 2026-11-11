@@ -1,7 +1,6 @@
 from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from fastapi.responses import JSONResponse
 
 from app.api.auth_deps import RoleChecker, get_current_user
 from app.schemas.catalogos import (
@@ -12,8 +11,9 @@ from app.schemas.catalogos import (
     MarcaResponse,
     MarcaUpdate,
 )
+from app.schemas.common import MessageResponse
+from app.services.audit import audit
 from app.services.catalogo_service import CatalogoService
-from app.services.log_service import LogService
 
 router = APIRouter()
 
@@ -26,14 +26,14 @@ def get_marcas(_=Depends(get_current_user)):
 @router.post("/marcas", response_model=MarcaResponse)
 def create_marca(marca: MarcaCreate, background_tasks: BackgroundTasks, current_user=Depends(RoleChecker(["admin"]))):
     result = CatalogoService.create_marca(marca)
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="CREATE",
-        entidad="marcas",
+    audit(
+        background_tasks,
+        current_user,
+        "CREATE",
+        "marcas",
         entidad_id=str(result["id"]),
-        payload_enviado=marca.model_dump(),
-        respuesta_recibida=result
+        payload=marca.model_dump(),
+        respuesta=result,
     )
     return result
 
@@ -42,31 +42,31 @@ def update_marca(marca_id: int, marca: MarcaUpdate, background_tasks: Background
     updated = CatalogoService.update_marca(marca_id, marca)
     if not updated:
         raise HTTPException(status_code=404, detail="Marca no encontrada")
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="UPDATE",
-        entidad="marcas",
+    audit(
+        background_tasks,
+        current_user,
+        "UPDATE",
+        "marcas",
         entidad_id=str(marca_id),
-        payload_enviado=marca.model_dump(exclude_unset=True),
-        respuesta_recibida=updated
+        payload=marca.model_dump(exclude_unset=True),
+        respuesta=updated,
     )
     return updated
 
-@router.delete("/marcas/{marca_id}")
+@router.delete("/marcas/{marca_id}", response_model=MessageResponse)
 def delete_marca(marca_id: int, background_tasks: BackgroundTasks, current_user=Depends(RoleChecker(["admin"]))):
     try:
         success = CatalogoService.delete_marca(marca_id)
         if not success:
             raise HTTPException(status_code=404, detail="Marca no encontrada")
-        background_tasks.add_task(
-            LogService.registrar_log,
-            usuario_id=current_user.id,
-            evento="DELETE",
-            entidad="marcas",
-            entidad_id=str(marca_id)
+        audit(
+            background_tasks,
+            current_user,
+            "DELETE",
+            "marcas",
+            entidad_id=str(marca_id),
         )
-        return JSONResponse(content={"message": "Marca eliminada correctamente"})
+        return MessageResponse(message="Marca eliminada correctamente")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -79,14 +79,14 @@ def get_categorias(_=Depends(get_current_user)):
 @router.post("/categorias", response_model=CategoriaResponse)
 def create_categoria(categoria: CategoriaCreate, background_tasks: BackgroundTasks, current_user=Depends(RoleChecker(["admin"]))):
     result = CatalogoService.create_categoria(categoria)
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="CREATE",
-        entidad="categorias",
+    audit(
+        background_tasks,
+        current_user,
+        "CREATE",
+        "categorias",
         entidad_id=str(result["id"]),
-        payload_enviado=categoria.model_dump(),
-        respuesta_recibida=result
+        payload=categoria.model_dump(),
+        respuesta=result,
     )
     return result
 
@@ -95,30 +95,30 @@ def update_categoria(categoria_id: int, categoria: CategoriaUpdate, background_t
     updated = CatalogoService.update_categoria(categoria_id, categoria)
     if not updated:
         raise HTTPException(status_code=404, detail="Categoría no encontrada")
-    background_tasks.add_task(
-        LogService.registrar_log,
-        usuario_id=current_user.id,
-        evento="UPDATE",
-        entidad="categorias",
+    audit(
+        background_tasks,
+        current_user,
+        "UPDATE",
+        "categorias",
         entidad_id=str(categoria_id),
-        payload_enviado=categoria.model_dump(exclude_unset=True),
-        respuesta_recibida=updated
+        payload=categoria.model_dump(exclude_unset=True),
+        respuesta=updated,
     )
     return updated
 
-@router.delete("/categorias/{categoria_id}")
+@router.delete("/categorias/{categoria_id}", response_model=MessageResponse)
 def delete_categoria(categoria_id: int, background_tasks: BackgroundTasks, current_user=Depends(RoleChecker(["admin"]))):
     try:
         success = CatalogoService.delete_categoria(categoria_id)
         if not success:
             raise HTTPException(status_code=404, detail="Categoría no encontrada")
-        background_tasks.add_task(
-            LogService.registrar_log,
-            usuario_id=current_user.id,
-            evento="DELETE",
-            entidad="categorias",
-            entidad_id=str(categoria_id)
+        audit(
+            background_tasks,
+            current_user,
+            "DELETE",
+            "categorias",
+            entidad_id=str(categoria_id),
         )
-        return JSONResponse(content={"message": "Categoría eliminada correctamente"})
+        return MessageResponse(message="Categoría eliminada correctamente")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
