@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated, List, Optional
 
-from pydantic import UUID4, BaseModel, Field, StringConstraints, field_validator
+from pydantic import UUID4, BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 # Input constraints. Response models below are deliberately unconstrained so
 # rows stored before these limits existed can still be listed.
@@ -46,6 +46,15 @@ class VariantResponse(BaseModel):
     precio_costo: Optional[float] = None
     stock_actual: int = 0
     stock_minimo: int = 0
+
+
+class StockAdjustResponse(VariantResponse):
+    """Full `producto_variantes` row returned by the `ajustar_stock` function."""
+
+    model_config = ConfigDict(extra="allow")
+
+    tiendanube_variant_id: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class ProductCreate(BaseModel):

@@ -19,7 +19,7 @@ def seed():
     cats = res_cat.data
     print(f"Inserted {len(cats)} categorias.")
 
-    # 2. Marcas (Assuming table exists and has 'nombre')
+    # 2. Marcas
     print("Inserting Marcas...")
     marca_ombu = {"nombre": "Ombu"}
     marca_pampero = {"nombre": "Pampero"}
@@ -51,7 +51,6 @@ def seed():
     print(f"Inserted {len(prods)} productos.")
 
     # Link Products to Categories (producto_categorias)
-    # Assuming table exists: producto_id, categoria_id
     if cats and prods:
         print("Linking Products to Categories...")
         links = [
