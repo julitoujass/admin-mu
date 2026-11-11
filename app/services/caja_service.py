@@ -1,89 +1,115 @@
+from postgrest.exceptions import APIError
 
+from app.core.db_utils import single_row
 from app.core.exceptions import CajaError
 from app.core.supabase import supabase
 from app.schemas.caja import CajaApertura, CajaCierre, CajaMovimiento
 
+NO_OPEN_SESSION = "No hay sesión de caja abierta."
+ALREADY_OPEN = "Ya existe una sesión de caja abierta."
+UNIQUE_VIOLATION = "23505"
+
 
 class CajaService:
     @staticmethod
-    def get_sesion_activa(usuario_id: str = None):
-        # Global register (ignoring usuario_id parameter constraint)
-        res = supabase.table("sesiones_caja").select("*").eq("estado", "abierta").execute()
-        # Return first item if exists, else None
-        if res.data and len(res.data) > 0:
-            return res.data[0]
-        return None
+    def get_sesion_activa():
+        """The single open cash session, or None.
+
+        The register is global by business decision: there is one cash register
+        shared by every user, and a unique index allows only one open session.
+        """
+        res = supabase.table("sesiones_caja").select("*").eq("estado", "abierta").limit(1).execute()
+        return res.data[0] if res.data else None
+
+    @staticmethod
+    def _require_sesion_activa():
+        sesion = CajaService.get_sesion_activa()
+        if not sesion:
+            raise CajaError(NO_OPEN_SESSION)
+        return sesion
 
     @staticmethod
     def abrir_caja(usuario_id: str, datos: CajaApertura):
-        # We use the passed usuario_id which presumably comes from credentials or now from body?
-        # The prompt said "solicitar tambien el uuid del usuario". 
-        # So I should probably adhere to using the one passed in `datos` if the endpoint passes it.
-        # But wait, looking at my plan: "Usage: CajaService.abrir_caja(datos.usuario_id, datos)".
-        # So `usuario_id` arg will be `datos.usuario_id`.
-        if CajaService.get_sesion_activa(usuario_id):
-            raise CajaError("Ya existe una sesión de caja abierta.")
-        
+        """Open the register for `usuario_id` (always the authenticated user)."""
+        if CajaService.get_sesion_activa():
+            raise CajaError(ALREADY_OPEN, status_code=409)
+
         nueva_sesion = {
-            "usuario_id": usuario_id,
+            "usuario_id": str(usuario_id),
             "monto_apertura": datos.monto_apertura,
-            "estado": "abierta"
+            "estado": "abierta",
         }
-        res = supabase.table("sesiones_caja").insert(nueva_sesion).execute()
+        try:
+            res = supabase.table("sesiones_caja").insert(nueva_sesion).execute()
+        except APIError as exc:
+            # Lost a race with another request: the unique index on open sessions rejected the insert.
+            if exc.code == UNIQUE_VIOLATION:
+                raise CajaError(ALREADY_OPEN, status_code=409) from exc
+            raise
         return res.data[0]
 
     @staticmethod
-    def registrar_movimiento(usuario_id: str, datos: CajaMovimiento):
-        sesion = CajaService.get_sesion_activa(usuario_id)
-        if not sesion:
-            raise CajaError("No hay sesión de caja abierta.")
-        
+    def registrar_movimiento(datos: CajaMovimiento):
+        sesion = CajaService._require_sesion_activa()
         movimiento = {
             "sesion_id": sesion["id"],
             "tipo": datos.tipo,
             "monto": datos.monto,
-            "motivo": datos.motivo
+            "motivo": datos.motivo,
         }
         res = supabase.table("movimientos_caja").insert(movimiento).execute()
         return res.data[0]
 
     @staticmethod
-    def obtener_movimientos(usuario_id: str):
-        sesion = CajaService.get_sesion_activa(usuario_id)
-        if not sesion:
-            raise CajaError("No hay sesión de caja abierta.")
-        
+    def obtener_movimientos():
+        sesion = CajaService._require_sesion_activa()
         res = supabase.table("movimientos_caja").select("*").eq("sesion_id", sesion["id"]).execute()
         return res.data
 
     @staticmethod
-    def cerrar_caja(usuario_id: str, datos: CajaCierre):
-        sesion = CajaService.get_sesion_activa(usuario_id)
-        if not sesion:
-            raise CajaError("No hay sesión de caja abierta.")
-        
-        # Call RPC
+    def cerrar_caja(datos: CajaCierre):
+        """Close the open session through the `cerrar_caja` database function.
+
+        The function locks the session, computes the expected cash
+        (opening + cash sales + ingresos - egresos) and returns the closed row.
+        """
+        sesion = CajaService._require_sesion_activa()
         params = {
             "p_sesion_id": sesion["id"],
             "p_monto_real_efectivo": datos.monto_real_efectivo,
-            "p_observaciones": datos.observaciones
+            "p_observaciones": datos.observaciones,
         }
-        res = supabase.rpc("finalizar_cierre_caja", params).execute()
-        
-        # Unwrap list if RPC returns an array
-        if isinstance(res.data, list) and len(res.data) > 0:
-            return res.data[0]
-        elif isinstance(res.data, list):
-            return {**sesion, "estado": "cerrada"}
-        return res.data
+        res = supabase.rpc("cerrar_caja", params).execute()
+        return single_row(res.data)
 
     @staticmethod
-    def obtener_sesiones():
-        res = supabase.table("sesiones_caja").select("*").order("fecha_apertura", desc=True).execute()
+    def obtener_resumen():
+        """Live totals of the open session (`resumen_caja`), or None when the register is closed."""
+        sesion = CajaService.get_sesion_activa()
+        if not sesion:
+            return None
+        res = supabase.rpc("resumen_caja", {"p_sesion_id": sesion["id"]}).execute()
+        return single_row(res.data)
+
+    @staticmethod
+    def obtener_sesiones(limit: int = 200, offset: int = 0):
+        res = (
+            supabase.table("sesiones_caja")
+            .select("*")
+            .order("fecha_apertura", desc=True)
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
         return res.data
 
     @staticmethod
     def obtener_movimientos_por_sesion(sesion_id: str):
-        # Asumiendo que la columna de fecha de creación en db es 'creado_en' basado en el schema
-        res = supabase.table("movimientos_caja").select("*").eq("sesion_id", sesion_id).order("creado_en", desc=True).execute()
+        # movimientos_caja uses 'creado_en' (not 'created_at') as its timestamp column.
+        res = (
+            supabase.table("movimientos_caja")
+            .select("*")
+            .eq("sesion_id", sesion_id)
+            .order("creado_en", desc=True)
+            .execute()
+        )
         return res.data

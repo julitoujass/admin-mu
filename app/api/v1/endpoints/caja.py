@@ -1,36 +1,54 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 
 from app.api.auth_deps import get_current_user
-from app.schemas.caja import CajaApertura, CajaCierre, CajaMovimiento, CajaMovimientoResponse, SesionCajaResponse
+from app.schemas.caja import (
+    CajaApertura,
+    CajaCierre,
+    CajaMovimiento,
+    CajaMovimientoResponse,
+    CajaResumenResponse,
+    SesionCajaResponse,
+)
 from app.services.caja_service import CajaService
 from app.services.log_service import LogService
 
 router = APIRouter()
 
+
 @router.get("/estado", response_model=Optional[SesionCajaResponse])
-def get_estado(current_user = Depends(get_current_user)):
-    return CajaService.get_sesion_activa(current_user.id)
+def get_estado(current_user=Depends(get_current_user)):
+    return CajaService.get_sesion_activa()
+
+
+@router.get("/resumen", response_model=Optional[CajaResumenResponse])
+def get_resumen(current_user=Depends(get_current_user)):
+    """Live totals of the open session; `null` when the register is closed."""
+    return CajaService.obtener_resumen()
+
 
 @router.post("/apertura", response_model=SesionCajaResponse)
-def abrir_caja(datos: CajaApertura, background_tasks: BackgroundTasks, current_user = Depends(get_current_user)):
-    # Use usuario_id from the request body as requested
-    result = CajaService.abrir_caja(str(datos.usuario_id), datos)
+def abrir_caja(datos: CajaApertura, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
+    # The session owner is the authenticated user; any `usuario_id` in the body is ignored.
+    result = CajaService.abrir_caja(current_user.id, datos)
     background_tasks.add_task(
         LogService.registrar_log,
         usuario_id=current_user.id,
         evento="APERTURA_CAJA",
         entidad="sesiones_caja",
-        entidad_id=str(result.id),
-        payload_enviado=datos.model_dump(),
-        respuesta_recibida=result.model_dump()
+        entidad_id=str(result["id"]),
+        payload_enviado=datos.model_dump(mode="json"),
+        respuesta_recibida=result,
     )
     return result
 
-@router.post("/movimiento")
-def registrar_movimiento(datos: CajaMovimiento, background_tasks: BackgroundTasks, current_user = Depends(get_current_user)):
-    result = CajaService.registrar_movimiento(current_user.id, datos)
+
+@router.post("/movimiento", response_model=CajaMovimientoResponse)
+def registrar_movimiento(
+    datos: CajaMovimiento, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)
+):
+    result = CajaService.registrar_movimiento(datos)
     background_tasks.add_task(
         LogService.registrar_log,
         usuario_id=current_user.id,
@@ -38,33 +56,41 @@ def registrar_movimiento(datos: CajaMovimiento, background_tasks: BackgroundTask
         entidad="movimientos_caja",
         entidad_id=str(result["id"]),
         descripcion=f"{datos.tipo.upper()}: {datos.motivo}",
-        payload_enviado=datos.model_dump(),
-        respuesta_recibida=result
+        payload_enviado=datos.model_dump(mode="json"),
+        respuesta_recibida=result,
     )
     return result
 
-@router.get("/movimientos", response_model=List[CajaMovimientoResponse])
-def get_movimientos(current_user = Depends(get_current_user)):
-    return CajaService.obtener_movimientos(current_user.id)
 
-@router.post("/cierre")
-def cerrar_caja(datos: CajaCierre, background_tasks: BackgroundTasks, current_user = Depends(get_current_user)):
-    result = CajaService.cerrar_caja(current_user.id, datos)
+@router.get("/movimientos", response_model=List[CajaMovimientoResponse])
+def get_movimientos(current_user=Depends(get_current_user)):
+    return CajaService.obtener_movimientos()
+
+
+@router.post("/cierre", response_model=SesionCajaResponse)
+def cerrar_caja(datos: CajaCierre, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
+    result = CajaService.cerrar_caja(datos)
     background_tasks.add_task(
         LogService.registrar_log,
         usuario_id=current_user.id,
         evento="CIERRE_CAJA",
         entidad="sesiones_caja",
-        entidad_id=str(result.get("id", "")),
-        payload_enviado=datos.model_dump(),
-        respuesta_recibida=result
+        entidad_id=str(result["id"]),
+        payload_enviado=datos.model_dump(mode="json"),
+        respuesta_recibida=result,
     )
     return result
 
+
 @router.get("/sesiones", response_model=List[SesionCajaResponse])
-def get_sesiones(current_user = Depends(get_current_user)):
-    return CajaService.obtener_sesiones()
+def get_sesiones(
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    current_user=Depends(get_current_user),
+):
+    return CajaService.obtener_sesiones(limit, offset)
+
 
 @router.get("/sesiones/{sesion_id}/movimientos", response_model=List[CajaMovimientoResponse])
-def get_movimientos_por_sesion(sesion_id: str, current_user = Depends(get_current_user)):
+def get_movimientos_por_sesion(sesion_id: str, current_user=Depends(get_current_user)):
     return CajaService.obtener_movimientos_por_sesion(sesion_id)
