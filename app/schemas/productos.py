@@ -42,7 +42,8 @@ class VariantResponse(BaseModel):
     talle: Optional[str] = None
     color: Optional[str] = None
     precio_venta: float
-    precio_costo: float = 0
+    # Cost data is admin-only: the endpoints send `null` to every other role.
+    precio_costo: Optional[float] = None
     stock_actual: int = 0
     stock_minimo: int = 0
 

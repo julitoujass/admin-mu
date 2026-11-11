@@ -1,8 +1,9 @@
 from typing import List, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 
-from app.api.auth_deps import get_current_user
+from app.api.auth_deps import RoleChecker, get_current_user
 from app.schemas.caja import (
     CajaApertura,
     CajaCierre,
@@ -86,11 +87,11 @@ def cerrar_caja(datos: CajaCierre, background_tasks: BackgroundTasks, current_us
 def get_sesiones(
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    current_user=Depends(get_current_user),
+    current_user=Depends(RoleChecker(["admin"])),
 ):
     return CajaService.obtener_sesiones(limit, offset)
 
 
 @router.get("/sesiones/{sesion_id}/movimientos", response_model=List[CajaMovimientoResponse])
-def get_movimientos_por_sesion(sesion_id: str, current_user=Depends(get_current_user)):
-    return CajaService.obtener_movimientos_por_sesion(sesion_id)
+def get_movimientos_por_sesion(sesion_id: UUID, current_user=Depends(RoleChecker(["admin"]))):
+    return CajaService.obtener_movimientos_por_sesion(str(sesion_id))

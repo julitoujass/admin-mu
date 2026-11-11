@@ -1,4 +1,5 @@
 from typing import List, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
@@ -34,8 +35,8 @@ def create_cliente(cliente: ClienteCreate, background_tasks: BackgroundTasks, cu
     return result
 
 @router.patch("/{id}", response_model=ClienteResponse)
-def update_cliente(id: str, cliente_update: ClienteUpdate, background_tasks: BackgroundTasks, current_user = Depends(get_current_user)):
-    cliente = ClienteService.update_cliente(id, cliente_update)
+def update_cliente(id: UUID, cliente_update: ClienteUpdate, background_tasks: BackgroundTasks, current_user = Depends(get_current_user)):
+    cliente = ClienteService.update_cliente(str(id), cliente_update)
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente not found")
     background_tasks.add_task(
@@ -43,7 +44,7 @@ def update_cliente(id: str, cliente_update: ClienteUpdate, background_tasks: Bac
         usuario_id=current_user.id,
         evento="UPDATE",
         entidad="clientes",
-        entidad_id=id,
+        entidad_id=str(id),
         payload_enviado=cliente_update.model_dump(exclude_unset=True),
         respuesta_recibida=cliente
     )

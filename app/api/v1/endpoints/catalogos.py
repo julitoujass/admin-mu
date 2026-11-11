@@ -3,7 +3,7 @@ from typing import List
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
-from app.api.auth_deps import get_current_user
+from app.api.auth_deps import RoleChecker, get_current_user
 from app.schemas.catalogos import (
     CategoriaCreate,
     CategoriaResponse,
@@ -24,7 +24,7 @@ def get_marcas(_=Depends(get_current_user)):
     return CatalogoService.get_marcas()
 
 @router.post("/marcas", response_model=MarcaResponse)
-def create_marca(marca: MarcaCreate, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
+def create_marca(marca: MarcaCreate, background_tasks: BackgroundTasks, current_user=Depends(RoleChecker(["admin"]))):
     result = CatalogoService.create_marca(marca)
     background_tasks.add_task(
         LogService.registrar_log,
@@ -38,7 +38,7 @@ def create_marca(marca: MarcaCreate, background_tasks: BackgroundTasks, current_
     return result
 
 @router.patch("/marcas/{marca_id}", response_model=MarcaResponse)
-def update_marca(marca_id: int, marca: MarcaUpdate, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
+def update_marca(marca_id: int, marca: MarcaUpdate, background_tasks: BackgroundTasks, current_user=Depends(RoleChecker(["admin"]))):
     updated = CatalogoService.update_marca(marca_id, marca)
     if not updated:
         raise HTTPException(status_code=404, detail="Marca no encontrada")
@@ -54,7 +54,7 @@ def update_marca(marca_id: int, marca: MarcaUpdate, background_tasks: Background
     return updated
 
 @router.delete("/marcas/{marca_id}")
-def delete_marca(marca_id: int, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
+def delete_marca(marca_id: int, background_tasks: BackgroundTasks, current_user=Depends(RoleChecker(["admin"]))):
     try:
         success = CatalogoService.delete_marca(marca_id)
         if not success:
@@ -77,7 +77,7 @@ def get_categorias(_=Depends(get_current_user)):
     return CatalogoService.get_categorias()
 
 @router.post("/categorias", response_model=CategoriaResponse)
-def create_categoria(categoria: CategoriaCreate, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
+def create_categoria(categoria: CategoriaCreate, background_tasks: BackgroundTasks, current_user=Depends(RoleChecker(["admin"]))):
     result = CatalogoService.create_categoria(categoria)
     background_tasks.add_task(
         LogService.registrar_log,
@@ -91,7 +91,7 @@ def create_categoria(categoria: CategoriaCreate, background_tasks: BackgroundTas
     return result
 
 @router.patch("/categorias/{categoria_id}", response_model=CategoriaResponse)
-def update_categoria(categoria_id: int, categoria: CategoriaUpdate, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
+def update_categoria(categoria_id: int, categoria: CategoriaUpdate, background_tasks: BackgroundTasks, current_user=Depends(RoleChecker(["admin"]))):
     updated = CatalogoService.update_categoria(categoria_id, categoria)
     if not updated:
         raise HTTPException(status_code=404, detail="Categoría no encontrada")
@@ -107,7 +107,7 @@ def update_categoria(categoria_id: int, categoria: CategoriaUpdate, background_t
     return updated
 
 @router.delete("/categorias/{categoria_id}")
-def delete_categoria(categoria_id: int, background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
+def delete_categoria(categoria_id: int, background_tasks: BackgroundTasks, current_user=Depends(RoleChecker(["admin"]))):
     try:
         success = CatalogoService.delete_categoria(categoria_id)
         if not success:
