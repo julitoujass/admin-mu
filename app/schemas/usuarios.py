@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import UUID4, BaseModel
+from pydantic import UUID4, BaseModel, StrictBool
 
 
 class RoleResponse(BaseModel):
@@ -18,3 +18,12 @@ class UsuarioResponse(BaseModel):
 
 class UsuarioRoleUpdate(BaseModel):
     rol_id: int
+
+class UsuarioActivoUpdate(BaseModel):
+    activo: StrictBool
+
+class MeResponse(BaseModel):
+    id: str
+    email: Optional[str] = None
+    rol: str
+    activo: bool
