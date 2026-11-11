@@ -1,6 +1,4 @@
-from datetime import datetime, timezone
-
-from app.core.exceptions import StockError
+from app.core.db_utils import fetch_all, single_row
 from app.core.supabase import supabase
 from app.schemas.productos import ProductCreate, ProductUpdate, StockUpdate, VariantCreate, VariantUpdate
 
@@ -8,15 +6,22 @@ from app.schemas.productos import ProductCreate, ProductUpdate, StockUpdate, Var
 class ProductService:
     @staticmethod
     def get_products(categoria_id: int | None = None):
+        """Return the FULL catalog (the POS filters it client-side).
+
+        The rows are fetched page by page so the result is never silently
+        truncated at PostgREST's row cap.
+        """
         params = {}
         if categoria_id:
             params["p_categoria_id"] = categoria_id
-            
-        # Use RPC to filter by category if needed, and chain select to include variants
-        query = supabase.rpc("obtener_productos", params).select("*, variantes:producto_variantes(*)")
-            
-        response = query.execute()
-        return response.data
+
+        # RPC filters by category when asked; the chained select embeds the variants.
+        return fetch_all(
+            lambda: supabase.rpc("obtener_productos", params)
+            .select("*, variantes:producto_variantes(*)")
+            .order("nombre")
+            .order("id")
+        )
 
     @staticmethod
     def create_product(product: ProductCreate):
@@ -41,34 +46,16 @@ class ProductService:
         if not response.data:
             return None
         return response.data[0]
+
     @staticmethod
     def update_stock(update: StockUpdate):
-        variant_id = str(update.variante_id)
-        
-        # Get current stock
-        res = supabase.table("producto_variantes").select("stock_actual, producto_id").eq("id", variant_id).single().execute()
-        if not res.data:
-            raise StockError("Variant not found")
-        
-        current_stock = res.data.get("stock_actual") or 0
-        new_stock = current_stock + update.cantidad
-        
-        if new_stock < 0:
-             raise StockError("Stock cannot be negative")
+        """Apply a stock delta atomically through the `ajustar_stock` database function.
 
-        # Update stock and variant updated_at
-        now_iso = datetime.now(timezone.utc).isoformat()
-        res_update = supabase.table("producto_variantes").update({
-            "stock_actual": new_stock, 
-            "updated_at": now_iso
-        }).eq("id", variant_id).execute()
-        
-        # Also touch the product's updated_at
-        producto_id = res.data.get("producto_id")
-        if producto_id:
-            supabase.table("productos").update({"updated_at": now_iso}).eq("id", producto_id).execute()
-        
-        return res_update.data[0]
+        Raises APIError MU004 (variant not found) or MU002 (stock would go negative).
+        """
+        params = {"p_variante_id": str(update.variante_id), "p_cantidad": update.cantidad}
+        res = supabase.rpc("ajustar_stock", params).execute()
+        return single_row(res.data)
 
     @staticmethod
     def get_product_by_sku(sku: str):

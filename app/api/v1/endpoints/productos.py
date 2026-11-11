@@ -37,7 +37,7 @@ def update_stock(update: StockUpdate, background_tasks: BackgroundTasks, current
         evento="UPDATE_STOCK",
         entidad="producto_variantes",
         entidad_id=str(update.variante_id),
-        payload_enviado=update.model_dump(),
+        payload_enviado=update.model_dump(mode="json"),
         respuesta_recibida=result
     )
     return result
@@ -65,7 +65,7 @@ def create_variant(variant: VariantCreate, background_tasks: BackgroundTasks, cu
         evento="CREATE",
         entidad="producto_variantes",
         entidad_id=str(result["id"]),
-        payload_enviado=variant.model_dump(),
+        payload_enviado=variant.model_dump(mode="json"),
         respuesta_recibida=result
     )
     return result
