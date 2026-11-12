@@ -40,7 +40,15 @@ def test_api_error_is_mapped_by_code(auth_client, monkeypatch, code, status, det
 
 @pytest.mark.parametrize(
     ("code", "status"),
-    [("MU001", 400), ("MU002", 409), ("MU003", 400), ("MU004", 404), ("MU005", 409)],
+    [
+        ("MU001", 400),
+        ("MU002", 409),
+        ("MU003", 400),
+        ("MU004", 404),
+        ("MU005", 409),
+        ("MU006", 409),
+        ("MU007", 403),
+    ],
 )
 def test_database_business_error_keeps_its_own_message(auth_client, monkeypatch, code, status):
     message = "Stock insuficiente para la variante REM-001"

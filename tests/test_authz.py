@@ -67,9 +67,42 @@ SUMMARY = {
 SALE_ROW = {
     "id": "44444444-4444-4444-8444-444444444444",
     "created_at": "2026-11-11T12:00:00+00:00",
+    "subtotal": 1500.0,
+    "descuento_aplicado": 0,
+    "recargo_aplicado": 0,
     "total": 1500.0,
     "total_costo": 678.0,
     "metodo_pago": "Efectivo",
+    "estado": "completada",
+}
+SALE_ID = SALE_ROW["id"]
+SALE_DETAIL_ROW = {
+    **SALE_ROW,
+    "cliente": None,
+    "usuario": {"id": USER_ID, "nombre": "Ana"},
+    "motivo_anulacion": None,
+    "anulada_at": None,
+    "anulada_por": None,
+    "items": [
+        {
+            "variante_id": VARIANT_ID,
+            "cantidad": 1,
+            "precio_unitario": 1500.0,
+            "costo_unitario": 678.0,
+            "subtotal": 1500.0,
+            "variante": {"sku": "REM-001", "talle": "M", "color": "Azul", "producto": {"nombre": "Remera"}},
+        }
+    ],
+}
+STOCK_MOVEMENT_ROW = {
+    "id": 1,
+    "created_at": "2026-11-11T12:00:00+00:00",
+    "tipo": "ajuste",
+    "cantidad": 1,
+    "stock_resultante": 8,
+    "venta_id": None,
+    "motivo": "Ajuste",
+    "usuario": None,
 }
 VARIANT_BODY = {"producto_id": PRODUCT_ID, "sku": "REM-001", "precio_venta": 1500}
 STOCK_BODY = {"variante_id": VARIANT_ID, "cantidad": 1, "motivo": "Ajuste"}
@@ -104,6 +137,8 @@ ADMIN_ONLY_ROUTES = [
     ("PATCH", f"/productos/variante/{VARIANT_ID}", {"talle": "L"}, [[VARIANT_ROW]]),
     ("DELETE", f"/productos/variante/{VARIANT_ID}", None, [[], [VARIANT_ROW]]),
     ("PATCH", "/productos/inventario/stock", STOCK_BODY, [VARIANT_ROW]),
+    ("GET", f"/productos/variante/{VARIANT_ID}/movimientos", None, [[STOCK_MOVEMENT_ROW]]),
+    ("POST", f"/ventas/{SALE_ID}/anular", {"motivo": "Error de carga"}, [SALE_ROW, [SALE_DETAIL_ROW]]),
     ("POST", "/catalogos/marcas", {"nombre": "Acme"}, [[MARCA_ROW]]),
     ("PATCH", "/catalogos/marcas/1", {"nombre": "Acme"}, [[MARCA_ROW]]),
     ("DELETE", "/catalogos/marcas/1", None, [[], [MARCA_ROW]]),
@@ -125,6 +160,8 @@ ADMIN_ONLY_ROUTES = [
 EMPLOYEE_ROUTES = [
     ("POST", "/ventas/", SALE_BODY, [SALE_ROW]),
     ("GET", "/ventas/hoy", None, [[SALE_ROW], []]),
+    ("GET", "/ventas/", None, [[SALE_DETAIL_ROW]]),
+    ("GET", f"/ventas/{SALE_ID}", None, [[SALE_DETAIL_ROW]]),
     ("GET", "/caja/estado", None, [[OPEN_SESSION]]),
     ("GET", "/caja/resumen", None, [[OPEN_SESSION], SUMMARY]),
     ("POST", "/caja/apertura", {"monto_apertura": 100}, [[], [OPEN_SESSION]]),
@@ -242,6 +279,9 @@ def test_employee_responses_never_expose_cost_values(employee_client, monkeypatc
         ("DELETE", "/productos/variante/not-a-uuid", None),
         ("PATCH", "/clientes/not-a-uuid", {"nombre": "Ana"}),
         ("GET", "/caja/sesiones/not-a-uuid/movimientos", None),
+        ("GET", "/productos/variante/not-a-uuid/movimientos", None),
+        ("GET", "/ventas/not-a-uuid", None),
+        ("POST", "/ventas/not-a-uuid/anular", {"motivo": "Error"}),
         ("PATCH", "/usuarios/not-a-uuid/rol", {"rol_id": 1}),
         ("PATCH", "/usuarios/not-a-uuid/activo", {"activo": False}),
     ],

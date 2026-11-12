@@ -3,6 +3,14 @@
 from types import SimpleNamespace
 
 
+class Counted:
+    """Response whose exact row count differs from the page: `Counted(rows, total)`."""
+
+    def __init__(self, data, count):
+        self.data = data
+        self.count = count
+
+
 class FakeQuery:
     """Records every chained builder call and answers `execute()` from the owner's queue."""
 
@@ -26,7 +34,10 @@ class FakeQuery:
 
     def execute(self):
         self._owner.executed.append(self)
-        return SimpleNamespace(data=self._owner.next_response())
+        response = self._owner.next_response()
+        if isinstance(response, Counted):
+            return SimpleNamespace(data=response.data, count=response.count)
+        return SimpleNamespace(data=response, count=None)
 
 
 class FakeSupabase:

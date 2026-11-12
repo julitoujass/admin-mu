@@ -27,7 +27,7 @@ API_ERROR_MAP = {
     "23514": (400, "Dato fuera de rango"),
 }
 
-# Custom codes raised by our own database functions (crear_venta, cerrar_caja, ...).
+# Custom codes raised by our own database functions (registrar_venta, cerrar_caja, ...).
 # Their message is written by us in Spanish, so it is safe to return as `detail`.
 DB_BUSINESS_ERROR_STATUS = {
     "MU001": 400,  # no open cash session
@@ -35,6 +35,8 @@ DB_BUSINESS_ERROR_STATUS = {
     "MU003": 400,  # invalid input
     "MU004": 404,  # not found
     "MU005": 409,  # cash session already closed
+    "MU006": 409,  # sale already cancelled
+    "MU007": 403,  # discount above the limit allowed for the role
 }
 
 app = FastAPI(title="Uniforms POS API", version="1.0.0")

@@ -31,6 +31,7 @@ def test_event_names_are_the_normalized_set():
         "CLOSE_CAJA",
         "CASH_MOVEMENT",
         "CREATE_SALE",
+        "CANCEL_SALE",
         "UPDATE_ROL",
         "UPDATE_ACTIVO",
     }
@@ -76,7 +77,7 @@ def test_endpoint_audits_with_the_normalized_event(auth_client, monkeypatch):
     calls = []
     monkeypatch.setattr(productos, "audit", lambda *args, **kwargs: calls.append((args, kwargs)))
     row = {"id": VARIANT_ID, "producto_id": VARIANT_ID, "precio_venta": 1, "stock_actual": 3}
-    monkeypatch.setattr(productos.ProductService, "update_stock", lambda update: row)
+    monkeypatch.setattr(productos.ProductService, "update_stock", lambda update, usuario_id: row)
 
     response = auth_client.patch(
         "/api/v1/productos/inventario/stock",
