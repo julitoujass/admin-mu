@@ -1,6 +1,30 @@
 {
   "components": {
     "schemas": {
+      "AjusteVenta": {
+        "description": "Whole-sale discount or surcharge: a percentage (0..100) or a fixed amount.",
+        "properties": {
+          "tipo": {
+            "enum": [
+              "porcentaje",
+              "monto"
+            ],
+            "title": "Tipo",
+            "type": "string"
+          },
+          "valor": {
+            "minimum": 0.0,
+            "title": "Valor",
+            "type": "number"
+          }
+        },
+        "required": [
+          "tipo",
+          "valor"
+        ],
+        "title": "AjusteVenta",
+        "type": "object"
+      },
       "CajaApertura": {
         "properties": {
           "monto_apertura": {
@@ -901,6 +925,32 @@
         "title": "OkResponse",
         "type": "object"
       },
+      "PersonaRef": {
+        "description": "Embedded `{id, nombre}` of a customer or a user.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nombre"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "PersonaRef",
+        "type": "object"
+      },
       "ProductCreate": {
         "properties": {
           "descripcion": {
@@ -1193,7 +1243,7 @@
       },
       "StockAdjustResponse": {
         "additionalProperties": true,
-        "description": "Full `producto_variantes` row returned by the `ajustar_stock` function.",
+        "description": "Full `producto_variantes` row returned by the `registrar_ajuste_stock` function.",
         "properties": {
           "color": {
             "anyOf": [
@@ -1294,6 +1344,95 @@
         "title": "StockAdjustResponse",
         "type": "object"
       },
+      "StockMovementListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StockMovementResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "StockMovementListResponse",
+        "type": "object"
+      },
+      "StockMovementResponse": {
+        "description": "One row of the stock ledger (kardex) of a variant.",
+        "properties": {
+          "cantidad": {
+            "title": "Cantidad",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "motivo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Motivo"
+          },
+          "stock_resultante": {
+            "title": "Stock Resultante",
+            "type": "integer"
+          },
+          "tipo": {
+            "title": "Tipo",
+            "type": "string"
+          },
+          "usuario": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UsuarioRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "venta_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Venta Id"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "tipo",
+          "cantidad",
+          "stock_resultante"
+        ],
+        "title": "StockMovementResponse",
+        "type": "object"
+      },
       "StockUpdate": {
         "properties": {
           "cantidad": {
@@ -1331,6 +1470,31 @@
           "activo"
         ],
         "title": "UsuarioActivoUpdate",
+        "type": "object"
+      },
+      "UsuarioRef": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nombre"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "UsuarioRef",
         "type": "object"
       },
       "UsuarioResponse": {
@@ -1661,6 +1825,21 @@
         "title": "VariantUpdate",
         "type": "object"
       },
+      "VentaAnular": {
+        "properties": {
+          "motivo": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Motivo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "motivo"
+        ],
+        "title": "VentaAnular",
+        "type": "object"
+      },
       "VentaCreate": {
         "properties": {
           "cliente_id": {
@@ -1674,6 +1853,16 @@
               }
             ],
             "title": "Cliente Id"
+          },
+          "descuento": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AjusteVenta"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "items": {
             "items": {
@@ -1692,6 +1881,16 @@
             ],
             "title": "Metodo Pago",
             "type": "string"
+          },
+          "recargo": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AjusteVenta"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1699,6 +1898,398 @@
           "metodo_pago"
         ],
         "title": "VentaCreate",
+        "type": "object"
+      },
+      "VentaDetalleAdminResponse": {
+        "description": "Sale detail with cost data (admin only).",
+        "properties": {
+          "anulada_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anulada At"
+          },
+          "anulada_por": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cliente": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "descuento_aplicado": {
+            "title": "Descuento Aplicado",
+            "type": "number"
+          },
+          "estado": {
+            "title": "Estado",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/VentaDetalleItemAdmin"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "metodo_pago": {
+            "title": "Metodo Pago",
+            "type": "string"
+          },
+          "motivo_anulacion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Motivo Anulacion"
+          },
+          "recargo_aplicado": {
+            "title": "Recargo Aplicado",
+            "type": "number"
+          },
+          "subtotal": {
+            "title": "Subtotal",
+            "type": "number"
+          },
+          "total": {
+            "title": "Total",
+            "type": "number"
+          },
+          "total_costo": {
+            "title": "Total Costo",
+            "type": "number"
+          },
+          "usuario": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "subtotal",
+          "descuento_aplicado",
+          "recargo_aplicado",
+          "total",
+          "metodo_pago",
+          "estado",
+          "total_costo",
+          "items"
+        ],
+        "title": "VentaDetalleAdminResponse",
+        "type": "object"
+      },
+      "VentaDetalleItem": {
+        "properties": {
+          "cantidad": {
+            "title": "Cantidad",
+            "type": "integer"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "precio_unitario": {
+            "title": "Precio Unitario",
+            "type": "number"
+          },
+          "producto_nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Producto Nombre"
+          },
+          "sku": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sku"
+          },
+          "subtotal": {
+            "title": "Subtotal",
+            "type": "number"
+          },
+          "talle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Talle"
+          },
+          "variante_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variante Id"
+          }
+        },
+        "required": [
+          "cantidad",
+          "precio_unitario",
+          "subtotal"
+        ],
+        "title": "VentaDetalleItem",
+        "type": "object"
+      },
+      "VentaDetalleItemAdmin": {
+        "properties": {
+          "cantidad": {
+            "title": "Cantidad",
+            "type": "integer"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "costo_unitario": {
+            "title": "Costo Unitario",
+            "type": "number"
+          },
+          "precio_unitario": {
+            "title": "Precio Unitario",
+            "type": "number"
+          },
+          "producto_nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Producto Nombre"
+          },
+          "sku": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sku"
+          },
+          "subtotal": {
+            "title": "Subtotal",
+            "type": "number"
+          },
+          "talle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Talle"
+          },
+          "variante_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variante Id"
+          }
+        },
+        "required": [
+          "cantidad",
+          "precio_unitario",
+          "subtotal",
+          "costo_unitario"
+        ],
+        "title": "VentaDetalleItemAdmin",
+        "type": "object"
+      },
+      "VentaDetalleResponse": {
+        "description": "Sale detail without cost data (any role).",
+        "properties": {
+          "anulada_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anulada At"
+          },
+          "anulada_por": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cliente": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "descuento_aplicado": {
+            "title": "Descuento Aplicado",
+            "type": "number"
+          },
+          "estado": {
+            "title": "Estado",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/VentaDetalleItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "metodo_pago": {
+            "title": "Metodo Pago",
+            "type": "string"
+          },
+          "motivo_anulacion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Motivo Anulacion"
+          },
+          "recargo_aplicado": {
+            "title": "Recargo Aplicado",
+            "type": "number"
+          },
+          "subtotal": {
+            "title": "Subtotal",
+            "type": "number"
+          },
+          "total": {
+            "title": "Total",
+            "type": "number"
+          },
+          "usuario": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "subtotal",
+          "descuento_aplicado",
+          "recargo_aplicado",
+          "total",
+          "metodo_pago",
+          "estado",
+          "items"
+        ],
+        "title": "VentaDetalleResponse",
         "type": "object"
       },
       "VentaDia": {
@@ -1759,11 +2350,29 @@
         "title": "VentaItem",
         "type": "object"
       },
-      "VentaResponse": {
+      "VentaListItem": {
         "properties": {
+          "cliente": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
+            "type": "string"
+          },
+          "descuento_aplicado": {
+            "title": "Descuento Aplicado",
+            "type": "number"
+          },
+          "estado": {
+            "title": "Estado",
             "type": "string"
           },
           "id": {
@@ -1775,6 +2384,95 @@
             "title": "Metodo Pago",
             "type": "string"
           },
+          "recargo_aplicado": {
+            "title": "Recargo Aplicado",
+            "type": "number"
+          },
+          "subtotal": {
+            "title": "Subtotal",
+            "type": "number"
+          },
+          "total": {
+            "title": "Total",
+            "type": "number"
+          },
+          "usuario": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "subtotal",
+          "descuento_aplicado",
+          "recargo_aplicado",
+          "total",
+          "metodo_pago",
+          "estado"
+        ],
+        "title": "VentaListItem",
+        "type": "object"
+      },
+      "VentaListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/VentaListItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "VentaListResponse",
+        "type": "object"
+      },
+      "VentaResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "descuento_aplicado": {
+            "title": "Descuento Aplicado",
+            "type": "number"
+          },
+          "estado": {
+            "title": "Estado",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "metodo_pago": {
+            "title": "Metodo Pago",
+            "type": "string"
+          },
+          "recargo_aplicado": {
+            "title": "Recargo Aplicado",
+            "type": "number"
+          },
+          "subtotal": {
+            "title": "Subtotal",
+            "type": "number"
+          },
           "total": {
             "title": "Total",
             "type": "number"
@@ -1783,8 +2481,12 @@
         "required": [
           "id",
           "created_at",
+          "subtotal",
+          "descuento_aplicado",
+          "recargo_aplicado",
           "total",
-          "metodo_pago"
+          "metodo_pago",
+          "estado"
         ],
         "title": "VentaResponse",
         "type": "object"
@@ -3079,6 +3781,77 @@
         ]
       }
     },
+    "/api/v1/productos/variante/{id}/movimientos": {
+      "get": {
+        "operationId": "get_variant_stock_movements_api_v1_productos_variante__id__movimientos_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockMovementListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Variant Stock Movements",
+        "tags": [
+          "Productos"
+        ]
+      }
+    },
     "/api/v1/productos/{id}": {
       "delete": {
         "operationId": "delete_product_api_v1_productos__id__delete",
@@ -3632,6 +4405,174 @@
       }
     },
     "/api/v1/ventas/": {
+      "get": {
+        "operationId": "listar_ventas_api_v1_ventas__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "desde",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Desde"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hasta",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hasta"
+            }
+          },
+          {
+            "in": "query",
+            "name": "metodo_pago",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "Efectivo",
+                    "Tarjeta",
+                    "QR"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Metodo Pago"
+            }
+          },
+          {
+            "in": "query",
+            "name": "estado",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "completada",
+                    "anulada"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Estado"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cliente_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cliente Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "usuario_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Usuario Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VentaListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Listar Ventas",
+        "tags": [
+          "Ventas"
+        ]
+      },
       "post": {
         "operationId": "crear_venta_api_v1_ventas__post",
         "parameters": [
@@ -3720,6 +4661,120 @@
           }
         ],
         "summary": "Get Ventas Hoy",
+        "tags": [
+          "Ventas"
+        ]
+      }
+    },
+    "/api/v1/ventas/{id}": {
+      "get": {
+        "operationId": "get_venta_api_v1_ventas__id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/VentaDetalleAdminResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/VentaDetalleResponse"
+                    }
+                  ],
+                  "title": "Response Get Venta Api V1 Ventas  Id  Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Venta",
+        "tags": [
+          "Ventas"
+        ]
+      }
+    },
+    "/api/v1/ventas/{id}/anular": {
+      "post": {
+        "operationId": "anular_venta_api_v1_ventas__id__anular_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VentaAnular"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VentaDetalleAdminResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Anular Venta",
         "tags": [
           "Ventas"
         ]

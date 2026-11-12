@@ -82,9 +82,9 @@ app/
 │           ├── catalogos.py       # Rutas de marcas y categorías
 │           └── usuarios.py        # Rutas de usuarios y roles
 ├── schemas/
-│   ├── productos.py               # Pydantic models: ProductCreate/Update/Response, VariantCreate/Update/Response, StockUpdate
+│   ├── productos.py               # Pydantic models: ProductCreate/Update/Response, VariantCreate/Update/Response, StockUpdate, StockMovementResponse/ListResponse (kardex)
 │   ├── caja.py                    # Pydantic models: CajaApertura, CajaMovimiento, CajaCierre, SesionCajaResponse, CajaMovimientoResponse, CajaResumenResponse
-│   ├── ventas.py                  # Pydantic models: VentaCreate, VentaItem, VentaResponse
+│   ├── ventas.py                  # Pydantic models: VentaCreate, VentaItem, AjusteVenta, VentaAnular, VentaResponse, VentaListResponse, VentaDetalleResponse / VentaDetalleAdminResponse
 │   ├── clientes.py                # Pydantic models: ClienteCreate/Update/Response
 │   ├── reportes.py                # Pydantic models: VentasTotalesReporte, ProductoTopReporte, CajaResumenReporte
 │   ├── catalogos.py               # Pydantic models: MarcaCreate/Update/Response, CategoriaCreate/Update/Response
@@ -109,14 +109,14 @@ tests/
 ├── test_settings.py               # Settings: defaults, parseo de CORS, validaciones
 ├── test_health.py                 # /health y /health/ready
 ├── test_cors.py                   # Preflight CORS (origen permitido / desconocido)
-├── fakes.py                       # FakeSupabase: cliente falso que registra las consultas y devuelve respuestas en cola
+├── fakes.py                       # FakeSupabase: cliente falso que registra las consultas y devuelve respuestas en cola (`Counted(filas, total)` simula `count="exact"`)
 ├── test_error_handling.py         # Mapeo de APIError (incluye códigos MU00x), 500 genérico, errores de catálogos
 ├── test_auth_deps.py              # get_current_user: 401 sin filtrar detalles, usuarios inactivos, TTLCache e invalidate_user
 ├── test_authz.py                  # Matriz de roles (403 empleado / 200 admin por ruta), costos ocultos, ids UUID inválidos → 422
 ├── test_usuarios.py               # /usuarios/me, cambio de rol y de `activo`: 404/400/409, auditoría e invalidación del cache
-├── test_ventas.py                 # RPC crear_venta, Idempotency-Key, validaciones, /ventas/hoy (día de Argentina, paginado)
+├── test_ventas.py                 # RPC registrar_venta (descuento/recargo), Idempotency-Key, validaciones, /ventas/hoy, listado, detalle y anulación
 ├── test_caja.py                   # Apertura (usuario del token, 409), cierre (cerrar_caja), resumen, movimientos, paginado
-├── test_productos.py              # ajustar_stock, validaciones de productos/variantes, paginado interno del catálogo
+├── test_productos.py              # registrar_ajuste_stock, kardex, validaciones de productos/variantes, paginado interno del catálogo
 ├── test_clientes.py               # Validaciones, saneado de búsqueda, paginado
 ├── test_audit.py                  # Helper `audit()`: serialización, eventos normalizados y evento en un endpoint
 ├── test_responses.py              # Formas de respuesta tipadas (delete, ajuste de stock) y mensajes 404 en español
@@ -151,11 +151,13 @@ Los roles salen de `perfiles.rol_id → roles.nombre` (`admin`, `empleado`). ✅
 
 | Recurso | Operación | empleado | admin |
 |---|---|---|---|
-| Ventas | `POST /ventas/`, `GET /ventas/hoy` | ✅ | ✅ |
+| Ventas | `POST /ventas/` (descuento de empleado: máximo 10%), `GET /ventas/hoy`, `GET /ventas/` | ✅ | ✅ |
+| Ventas | `GET /ventas/{id}` | ✅ **sin costos** | ✅ con `costo_unitario` y `total_costo` |
+| Ventas | `POST /ventas/{id}/anular` | 🔒 | ✅ |
 | Caja | `GET /caja/estado`, `GET /caja/resumen`, `GET /caja/movimientos` (sesión actual), `POST /caja/apertura`, `POST /caja/movimiento`, `POST /caja/cierre` | ✅ | ✅ |
 | Caja | `GET /caja/sesiones`, `GET /caja/sesiones/{sesion_id}/movimientos` (historial de otras sesiones) | 🔒 | ✅ |
 | Productos | `GET /productos/`, `GET /productos/sku/{sku}` | ✅ **sin costos** (`precio_costo: null`) | ✅ con costos |
-| Productos | `POST /productos/`, `PATCH /productos/{id}`, `POST /productos/variante`, `PATCH /productos/variante/{id}`, `PATCH /productos/inventario/stock`, `DELETE /productos/{id}`, `DELETE /productos/variante/{id}` | 🔒 | ✅ |
+| Productos | `POST /productos/`, `PATCH /productos/{id}`, `POST /productos/variante`, `PATCH /productos/variante/{id}`, `PATCH /productos/inventario/stock`, `GET /productos/variante/{id}/movimientos` (kardex), `DELETE /productos/{id}`, `DELETE /productos/variante/{id}` | 🔒 | ✅ |
 | Catálogos | `GET /catalogos/marcas`, `GET /catalogos/categorias` | ✅ | ✅ |
 | Catálogos | `POST` / `PATCH` / `DELETE` de marcas y categorías | 🔒 | ✅ |
 | Clientes | `GET /clientes/`, `POST /clientes/`, `PATCH /clientes/{id}` | ✅ | ✅ |
@@ -167,7 +169,7 @@ Un rol distinto de `admin` (o un usuario sin perfil) se trata como `empleado`.
 
 ### Costos ocultos para no-admin
 
-`precio_costo` solo lo ve un admin. En `GET /productos/` y `GET /productos/sku/{sku}` el endpoint quita el campo de cada variante antes de responder, y `VariantResponse.precio_costo` es opcional, así que un empleado recibe `"precio_costo": null`. El resto de las respuestas que ve un empleado no lleva costos: `VentaResponse` solo expone `id, created_at, total, metodo_pago` (nunca `total_costo`), y las respuestas de caja, clientes y catálogos no tienen columnas de costo. Las rutas que devuelven la fila completa de una variante (alta, edición, ajuste de stock) son solo admin.
+`precio_costo` solo lo ve un admin. En `GET /productos/` y `GET /productos/sku/{sku}` el endpoint quita el campo de cada variante antes de responder, y `VariantResponse.precio_costo` es opcional, así que un empleado recibe `"precio_costo": null`. El resto de las respuestas que ve un empleado no lleva costos: `VentaResponse` y el listado `GET /ventas/` solo exponen importes de venta (nunca `total_costo`); en `GET /ventas/{id}` un empleado recibe `VentaDetalleResponse`, sin `total_costo` ni `costo_unitario` (el servicio ni siquiera pide esas columnas a la base), y las respuestas de caja, clientes y catálogos no tienen columnas de costo. Las rutas que devuelven la fila completa de una variante (alta, edición, ajuste de stock) son solo admin.
 
 ### Cache de tokens
 
@@ -191,7 +193,7 @@ audit(background_tasks, current_user, "CREATE", "productos", entidad_id=..., pay
 
 - Encola `LogService.registrar_log()` como `BackgroundTask`; ese método inserta en la tabla `logs` (evento, entidad, entidad_id, payload, usuario_id, estado). Si el insert falla, solo se loguea el error y no afecta la respuesta.
 - `payload` y `respuesta` se pasan por `jsonable_encoder`: UUID, datetime y Decimal se serializan solos, así que se puede pasar `model_dump()` o la fila de la base tal cual.
-- `evento` es un `AuditEvent` (`Literal`): `CREATE`, `UPDATE`, `DELETE`, `ADJUST_STOCK`, `OPEN_CAJA`, `CLOSE_CAJA`, `CASH_MOVEMENT`, `CREATE_SALE`, `UPDATE_ROL`, `UPDATE_ACTIVO`. El tipo de entidad va en `entidad` (tabla afectada).
+- `evento` es un `AuditEvent` (`Literal`): `CREATE`, `UPDATE`, `DELETE`, `ADJUST_STOCK`, `OPEN_CAJA`, `CLOSE_CAJA`, `CASH_MOVEMENT`, `CREATE_SALE`, `CANCEL_SALE`, `UPDATE_ROL`, `UPDATE_ACTIVO`. El tipo de entidad va en `entidad` (tabla afectada).
 - Los eventos antiguos se renombraron: `UPDATE_STOCK` → `ADJUST_STOCK`, `APERTURA_CAJA` → `OPEN_CAJA`, `CIERRE_CAJA` → `CLOSE_CAJA`, `MOVIMIENTO_CAJA` → `CASH_MOVEMENT`, `CREATE_VENTA` → `CREATE_SALE`. El resto (`CREATE`, `UPDATE`, `DELETE`, `UPDATE_ROL`, `UPDATE_ACTIVO`) se mantiene. Las filas históricas de `logs` conservan el nombre viejo.
 
 ---
@@ -224,15 +226,17 @@ Definidos en `main.py`.
 
 **Códigos de negocio de la base (`MU00x`)**
 
-Los lanzan las funciones SQL propias (`crear_venta`, `cerrar_caja`, `ajustar_stock`, ...). Llegan como `APIError.code` y se mapean en `DB_BUSINESS_ERROR_STATUS` (`main.py`). Su `message` lo escribimos nosotros, por eso es el único caso en que el mensaje de la base se devuelve como `detail`.
+Los lanzan las funciones SQL propias (`registrar_venta`, `anular_venta`, `cerrar_caja`, `registrar_ajuste_stock`, ...). Llegan como `APIError.code` y se mapean en `DB_BUSINESS_ERROR_STATUS` (`main.py`). Su `message` lo escribimos nosotros, por eso es el único caso en que el mensaje de la base se devuelve como `detail`.
 
 | Código | HTTP Status | Significado |
 |---|---|---|
-| `MU001` | 400 | No hay sesión de caja abierta |
+| `MU001` | 400 | No hay sesión de caja abierta (también: anular una venta en efectivo de una sesión ya cerrada sin caja abierta para la devolución) |
 | `MU002` | 409 | Stock insuficiente / el stock quedaría negativo |
 | `MU003` | 400 | Datos de entrada inválidos |
 | `MU004` | 404 | Recurso no encontrado (variante, sesión, ...) |
 | `MU005` | 409 | La sesión de caja ya está cerrada |
+| `MU006` | 409 | La venta ya está anulada |
+| `MU007` | 403 | Descuento por encima del límite permitido para el rol (empleado: 10% del subtotal) |
 
 Un código `MU` no listado se trata como cualquier otro error desconocido (500 genérico).
 
@@ -334,7 +338,10 @@ Todas las tablas tienen **RLS habilitado sin políticas**: solo la clave secreta
 | `usuario_id` | uuid | nullable, FK → `perfiles.id` |
 | `sesion_caja` | uuid | nullable, FK → `sesiones_caja.id` |
 | `fecha` | timestamptz | `now()` |
-| `total` | numeric | default 0.00 |
+| `subtotal` | numeric | default 0. Suma de `cantidad × precio_unitario` de los items, antes de descuento y recargo |
+| `descuento_aplicado` | numeric | Importe del descuento (siempre un monto, aunque se haya pedido como porcentaje). `CHECK >= 0` |
+| `recargo_aplicado` | numeric | Importe del recargo. `CHECK >= 0` |
+| `total` | numeric | default 0.00. `total = subtotal − descuento_aplicado + recargo_aplicado` |
 | `total_costo` | numeric | default 0.00 |
 | `metodo_pago` | text | |
 | `origen` | text | default `'Local'` |
@@ -342,7 +349,14 @@ Todas las tablas tienen **RLS habilitado sin políticas**: solo la clave secreta
 | `nube_orden_id` | text | nullable, integración Tiendanube |
 | `notas` | text | nullable |
 | `numero_cae` | bigint | nullable, para facturación AFIP |
+| `idempotency_key` | text | nullable, única: clave del header `Idempotency-Key` |
+| `estado` | text | `'completada'` (default) \| `'anulada'` (`CHECK`) |
+| `anulada_at` | timestamptz | nullable, momento de la anulación |
+| `anulada_por` | uuid | nullable, FK → `perfiles.id` (quién anuló) |
+| `motivo_anulacion` | text | nullable |
 | `created_at` | timestamptz | |
+
+> `ventas` tiene **dos** FKs a `perfiles` (`usuario_id` y `anulada_por`): al embeber `perfiles` desde PostgREST hay que indicar la columna (`usuario:perfiles!usuario_id(...)`, `anulada_por:perfiles!anulada_por(...)`).
 
 #### `venta_detalle`
 | Columna | Tipo | Notas |
@@ -377,6 +391,21 @@ Todas las tablas tienen **RLS habilitado sin políticas**: solo la clave secreta
 | `monto` | numeric | |
 | `motivo` | text | |
 | `creado_en` | timestamptz | `now()` — ⚠️ difiere del resto (no es `created_at`) |
+
+#### `movimientos_stock` (kardex)
+Libro de movimientos de stock. Lo escriben **solo** las funciones SQL (`registrar_venta`, `anular_venta`, `registrar_ajuste_stock`); la API únicamente lo lee.
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `id` | bigint (PK) | identity |
+| `variante_id` | uuid | FK → `producto_variantes.id` |
+| `tipo` | text | `'venta'` \| `'anulacion'` \| `'ajuste'` |
+| `cantidad` | integer | Delta con signo, nunca 0: negativo en una venta, positivo en una anulación, con el signo del ajuste |
+| `stock_resultante` | integer | Stock de la variante después del movimiento (`>= 0`) |
+| `venta_id` | uuid | nullable, FK → `ventas.id` (ventas y anulaciones) |
+| `usuario_id` | uuid | nullable, FK → `perfiles.id` |
+| `motivo` | text | nullable: motivo del ajuste o de la anulación |
+| `created_at` | timestamptz | `now()` |
 
 #### `perfiles`
 | Columna | Tipo | Notas |
@@ -430,17 +459,22 @@ Se invocan con `supabase.rpc(nombre, params).execute()`. Toda la lógica de dine
 
 | Función | Parámetros | Retorna | Descripción |
 |---|---|---|---|
-| `crear_venta` | `p_usuario_id` uuid, `p_metodo_pago` text, `p_items` jsonb `[{variante_id, cantidad}]`, `p_cliente_id?` uuid, `p_idempotency_key?` text | fila de `ventas` | Venta atómica: bloquea filas, toma precios y costos de la base, unifica variantes repetidas, descuenta stock, escribe `venta_detalle`. La misma clave de idempotencia devuelve la venta original |
+| `registrar_venta` | `p_usuario_id` uuid, `p_metodo_pago` text, `p_items` jsonb `[{variante_id, cantidad}]`, `p_cliente_id?` uuid, `p_idempotency_key?` text, `p_descuento_tipo?` text (`null` \| `'porcentaje'` \| `'monto'`), `p_descuento_valor` numeric = 0, `p_recargo_tipo?` text, `p_recargo_valor` numeric = 0, `p_es_admin` boolean = false | fila de `ventas` | Venta atómica: bloquea filas, toma precios y costos de la base, unifica variantes repetidas, descuenta stock, escribe `venta_detalle` y `movimientos_stock` (`venta`), y aplica descuento y recargo. La misma clave de idempotencia devuelve la venta original. `MU007` si un no-admin descuenta más del 10% |
+| `anular_venta` | `p_venta_id` uuid, `p_usuario_id` uuid, `p_motivo` text | fila de `ventas` | Anulación atómica: devuelve el stock (`movimientos_stock` tipo `anulacion`), marca la venta como `anulada` y, si corresponde, registra el egreso de la devolución en efectivo. `MU004` / `MU006` / `MU001` / `MU003` |
 | `cerrar_caja` | `p_sesion_id` uuid, `p_monto_real_efectivo` numeric, `p_observaciones` text | fila de `sesiones_caja` | Bloquea la sesión, calcula el efectivo esperado (apertura + ventas en efectivo + ingresos − egresos) y la cierra |
 | `resumen_caja` | `p_sesion_id` uuid | jsonb | `{sesion_id, estado, fecha_apertura, monto_apertura, ventas_efectivo, ventas_tarjeta, ventas_qr, cantidad_ventas, ingresos, egresos, esperado_efectivo}` |
-| `ajustar_stock` | `p_variante_id` uuid, `p_cantidad` int | fila de `producto_variantes` | Suma el delta al stock de forma atómica; falla con `MU002` si quedaría negativo |
+| `registrar_ajuste_stock` | `p_variante_id` uuid, `p_cantidad` int, `p_usuario_id` uuid, `p_motivo` text | fila de `producto_variantes` | Suma el delta al stock de forma atómica y lo registra en `movimientos_stock` (`ajuste`); falla con `MU002` si quedaría negativo, `MU004` si la variante no existe |
 | `reporte_ventas` | `p_desde` date, `p_hasta` date | jsonb | `{total_ingresos, cantidad_operaciones, ventas_por_dia: [{fecha, total, cantidad_ventas}]}` |
 | `reporte_productos_top` | `p_desde` date, `p_hasta` date, `p_limite` int = 50 | setof | `(variante_id, nombre_producto, talle, color, cantidad_vendida, ingresos_generados)` |
 | `reporte_cajas` | `p_desde` date, `p_hasta` date | jsonb | `{resumen_diario: [{fecha, sesiones_abiertas, monto_inicial_total, ventas_efectivo, ingresos, egresos, monto_real_efectivo_total, diferencia_esperado_vs_real}], diferencia_total_periodo}` |
 | `obtener_productos` | `p_categoria_id?` int | setof `productos` | Productos, opcionalmente filtrados por categoría |
 
 - Los tres `reporte_*` agrupan por **fecha local de Argentina**; un parámetro de fecha `null` deja ese extremo sin límite.
-- `finalizar_cierre_caja` (anterior RPC de cierre) tenía errores, **ya no se usa** y será eliminada.
+- `resumen_caja`, `reporte_ventas` y `reporte_productos_top` **excluyen las ventas anuladas** (`estado = 'completada'`).
+- **Funciones obsoletas, pendientes de `DROP`** (siguen existiendo en la base pero la API ya no las llama y no deben volver a usarse):
+  - `crear_venta` → reemplazada por `registrar_venta` (no escribe kardex ni aplica descuento/recargo).
+  - `ajustar_stock` → reemplazada por `registrar_ajuste_stock` (no escribe kardex).
+  - `finalizar_cierre_caja` → reemplazada por `cerrar_caja` (tenía errores).
 - La base también tiene restricciones `CHECK` (error `23514` → 400) y el índice único de sesión abierta (`23505` → 409).
 
 ---
@@ -463,7 +497,8 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 | PATCH | `/{id}` | 🔒 | Actualiza nombre/descripción/marca de un producto |
 | POST | `/variante` | 🔒 | Crea una variante vinculada a un producto |
 | PATCH | `/variante/{id}` | 🔒 | Actualiza una variante (NO incluye stock_actual) |
-| PATCH | `/inventario/stock` | 🔒 | Ajusta el stock de una variante (suma/resta `cantidad`) vía RPC `ajustar_stock`; responde la fila completa de la variante (`StockAdjustResponse`). 404 si la variante no existe (`MU004`), 409 si el stock quedaría negativo (`MU002`) |
+| PATCH | `/inventario/stock` | 🔒 | Ajusta el stock de una variante (suma/resta `cantidad`) vía RPC `registrar_ajuste_stock`, que además deja el movimiento en el kardex con el usuario del token y el `motivo`; responde la fila completa de la variante (`StockAdjustResponse`). 404 si la variante no existe (`MU004`), 409 si el stock quedaría negativo (`MU002`) |
+| GET | `/variante/{id}/movimientos` | 🔒 | Kardex de una variante: `{ items, total }`, más reciente primero. Query params: `limit` (1..200, default 50) y `offset` (≥ 0). `total` es el conteo exacto de movimientos de la variante |
 | DELETE | `/variante/{id}` | 🔒 | Elimina una variante. 404 si no existe, 409 si tiene ventas en `venta_detalle` |
 | DELETE | `/{id}` | 🔒 | Elimina un producto con sus variantes y vínculos en `producto_categorias`. 404 si no existe, 409 si alguna variante tiene ventas |
 
@@ -488,7 +523,17 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 
 # StockUpdate
 { variante_id: UUID, cantidad: int != 0, motivo: str (1..200) }
-# cantidad es un delta: negativo para reducir stock. motivo solo se guarda en la auditoría (`logs`)
+# cantidad es un delta: negativo para reducir stock. motivo se guarda en el kardex (`movimientos_stock.motivo`) y en la auditoría (`logs`)
+```
+
+**Kardex (`GET /variante/{id}/movimientos`, `StockMovementListResponse`):**
+
+```python
+{
+  items: [{ id: int, created_at, tipo: 'venta' | 'anulacion' | 'ajuste', cantidad: int (con signo), stock_resultante: int,
+            venta_id: UUID | null, motivo: str | null, usuario: { id, nombre } | null }],
+  total: int   # conteo exacto, independiente de limit/offset
+}
 ```
 
 > Los modelos de respuesta (`ProductResponse`, `VariantResponse`) no aplican estos límites, para poder listar filas cargadas antes de que existieran.
@@ -498,7 +543,8 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 **Notas de implementación:**
 - `get_products()` usa RPC `obtener_productos` + `.select("*, variantes:producto_variantes(*)")` para incluir variantes, y recorre el resultado con `fetch_all()` (`.range()` de a 1000 filas, hasta recibir una página vacía) para que PostgREST nunca trunque el catálogo en silencio.
 - `get_product_by_sku()` primero busca la variante por SKU → obtiene `producto_id` → carga el producto completo con variantes.
-- `update_stock()` llama a la RPC `ajustar_stock` (atómica). Ya no hay read-modify-write en Python.
+- `update_stock(update, usuario_id)` llama a la RPC `registrar_ajuste_stock` (atómica, escribe el kardex). Ya no hay read-modify-write en Python.
+- `get_stock_movements()` lee `movimientos_stock` con `select(..., count="exact")`, embebe `usuario:perfiles(id, nombre)` y ordena por `created_at desc, id desc`. Una variante sin movimientos (o inexistente) devuelve `{items: [], total: 0}`.
 - `ProductCreate`/`ProductResponse` no incluyen categorías: la tabla `producto_categorias` solo se lee (filtro `?categoria_id=`) y se limpia al borrar un producto; no hay endpoint para asignar categorías.
 
 ---
@@ -559,28 +605,39 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
-| POST | `/` | ✅ | Crea una venta completa de forma atómica (RPC `crear_venta`) |
-| GET | `/hoy` | ✅ | Ventas del día actual **en Argentina**. Devuelve solo `id`, `created_at`, `total`, `metodo_pago` |
+| POST | `/` | ✅ | Crea una venta completa de forma atómica (RPC `registrar_venta`), con descuento y recargo opcionales |
+| GET | `/` | ✅ | Listado paginado de ventas con filtros; devuelve `{ items, total }` |
+| GET | `/hoy` | ✅ | Ventas **completadas** del día actual **en Argentina** (las anuladas no aparecen). Lista de `VentaResponse` |
+| GET | `/{id}` | ✅ | Detalle de una venta con sus items. Solo un admin recibe `costo_unitario` y `total_costo`. 404 `Venta no encontrada` |
+| POST | `/{id}/anular` | 🔒 | Anula una venta (RPC `anular_venta`) y devuelve su detalle |
 
-**Schema de entrada:**
+#### `POST /` — crear venta
 
 ```python
 # VentaCreate
 {
   items: [{ variante_id: UUID, cantidad: int (1..1000) }],   # entre 1 y 200 items
   metodo_pago: 'Efectivo' | 'Tarjeta' | 'QR',
-  cliente_id?: UUID
+  cliente_id?: UUID,
+  descuento?: { tipo: 'porcentaje' | 'monto', valor: float >= 0 },   # porcentaje: máximo 100
+  recargo?:   { tipo: 'porcentaje' | 'monto', valor: float >= 0 }    # porcentaje: máximo 100
 }
 # Header opcional: Idempotency-Key: <str, máx 100 caracteres>
 ```
 
-- `items[].precio_unitario` todavía se acepta por compatibilidad pero se **IGNORA**; cualquier otro campo extra (p. ej. `total`) también. Precios, costos y total salen siempre de la base.
-- **Respuesta (`VentaResponse`):** `{ id, created_at, total, metodo_pago }`. `total_costo` nunca se expone.
+- `items[].precio_unitario` todavía se acepta por compatibilidad pero se **IGNORA**; cualquier otro campo extra (p. ej. `total`) también. Precios, costos, subtotal y total salen siempre de la base.
+- **Respuesta (`VentaResponse`):** `{ id, created_at, subtotal, descuento_aplicado, recargo_aplicado, total, metodo_pago, estado }`. `total_costo` nunca se expone. `descuento_aplicado` y `recargo_aplicado` son siempre **importes** (un valor `null` de filas antiguas se devuelve como `0`).
+
+**Reglas de descuento y recargo** (las aplica la base, sobre toda la venta):
+- `subtotal` = suma de `cantidad × precio_venta`. El descuento se calcula sobre el subtotal; el recargo, sobre `subtotal − descuento`. `total = subtotal − descuento_aplicado + recargo_aplicado`.
+- El descuento no puede superar el subtotal (`MU003`, 400).
+- **Empleado: descuento máximo del 10% del subtotal**, sea porcentaje o monto; por encima responde 403 (`MU007`). Un admin no tiene ese límite. El rol sale del token (`p_es_admin = current_user.rol == "admin"`), nunca del body.
+- El recargo no tiene límite por rol.
 
 **Flujo de `crear_venta()`:**
 1. El endpoint lee el header `Idempotency-Key` (se recortan espacios; vacío = sin clave). Más de 100 caracteres → 400.
-2. `VentaService.crear_venta()` llama a la RPC `crear_venta` con `p_usuario_id` = usuario del token, `p_metodo_pago`, `p_items` = `[{variante_id, cantidad}]`, `p_cliente_id` y `p_idempotency_key`.
-3. La función, en una sola transacción: verifica la sesión de caja abierta, bloquea las variantes, toma `precio_venta`/`precio_costo` de la base, unifica variantes repetidas, descuenta stock, inserta `ventas` y `venta_detalle`, y devuelve la fila de `ventas`.
+2. `VentaService.crear_venta()` llama a la RPC `registrar_venta` con `p_usuario_id` = usuario del token, `p_metodo_pago`, `p_items` = `[{variante_id, cantidad}]`, `p_cliente_id`, `p_idempotency_key`, `p_descuento_tipo`/`p_descuento_valor`, `p_recargo_tipo`/`p_recargo_valor` (`null`/`0` si no se envían) y `p_es_admin`.
+3. La función, en una sola transacción: verifica la sesión de caja abierta, bloquea las variantes, toma `precio_venta`/`precio_costo` de la base, unifica variantes repetidas, descuenta stock, inserta `ventas`, `venta_detalle` y un movimiento `venta` por variante en `movimientos_stock`, calcula subtotal, descuento, recargo y total, y devuelve la fila de `ventas`.
 4. Reintentar con la misma `Idempotency-Key` devuelve la venta original en lugar de crear otra.
 5. El endpoint registra la auditoría (`CREATE_SALE`) como `BackgroundTask`.
 
@@ -588,17 +645,68 @@ Todos los endpoints (salvo `GET /`, `GET /health` y `GET /health/ready`) requier
 
 | Caso | HTTP | Origen |
 |---|---|---|
-| Body inválido (`metodo_pago` desconocido, sin items, `cantidad` fuera de 1..1000, UUID inválido, más de 200 items) | 422 | Pydantic |
+| Body inválido (`metodo_pago` desconocido, sin items, `cantidad` fuera de 1..1000, UUID inválido, más de 200 items, descuento/recargo con `tipo` desconocido, `valor` negativo o porcentaje mayor a 100) | 422 | Pydantic |
 | `Idempotency-Key` de más de 100 caracteres | 400 | Endpoint |
 | No hay sesión de caja abierta | 400 | `MU001` |
-| Datos inválidos detectados por la base | 400 | `MU003` |
+| Datos inválidos detectados por la base (p. ej. descuento mayor al subtotal) | 400 | `MU003` |
+| Descuento de un empleado mayor al 10% | 403 | `MU007` |
 | Variante inexistente | 404 | `MU004` |
 | Stock insuficiente | 409 | `MU002` |
 
+#### `GET /` — listado
+
+Query params (todos opcionales): `desde` y `hasta` (`YYYY-MM-DD`, **fechas locales de Argentina, ambas inclusive**), `metodo_pago` (`Efectivo` | `Tarjeta` | `QR`), `estado` (`completada` | `anulada`), `cliente_id` (UUID), `usuario_id` (UUID), `limit` (1..200, default 50), `offset` (≥ 0). Un valor inválido responde 422. Orden: `created_at` descendente.
+
+```python
+# VentaListResponse
+{
+  items: [{ id, created_at, subtotal, descuento_aplicado, recargo_aplicado, total, metodo_pago, estado,
+            cliente: { id, nombre } | null, usuario: { id, nombre } | null }],
+  total: int   # conteo exacto de ventas que cumplen los filtros, independiente de limit/offset
+}
+```
+
+Sin el filtro `estado` el listado incluye completadas y anuladas. Nunca expone `total_costo`.
+
+#### `GET /{id}` — detalle
+
+```python
+# VentaDetalleResponse (empleado) / VentaDetalleAdminResponse (admin)
+{
+  ...mismos campos que un item del listado,
+  motivo_anulacion: str | null, anulada_at: datetime | null, anulada_por: { id, nombre } | null,
+  items: [{ variante_id, sku, producto_nombre, talle, color, cantidad, precio_unitario, subtotal,
+            costo_unitario }],   # costo_unitario: solo admin
+  total_costo: float             # solo admin
+}
+```
+
+Para un empleado las claves `costo_unitario` y `total_costo` **no están** en la respuesta (no llegan como `null`).
+
+#### `POST /{id}/anular` — anulación (solo admin)
+
+Body `VentaAnular`: `{ motivo: str (1..200, se recortan espacios) }`. Respuesta: el detalle de la venta ya anulada (`VentaDetalleAdminResponse`, igual que `GET /{id}` para admin). Auditoría: evento `CANCEL_SALE`.
+
+**Reglas de anulación** (función `anular_venta`, una sola transacción):
+- La venta pasa a `estado = 'anulada'` y guarda `anulada_at`, `anulada_por` (usuario del token) y `motivo_anulacion`. No se borra nada.
+- El stock de cada variante vuelve y queda un movimiento `anulacion` en `movimientos_stock`.
+- Una venta anulada deja de contar en `resumen_caja`, en los reportes y en `GET /ventas/hoy`.
+- **Devolución en efectivo:** si la venta fue en `Efectivo` y pertenece a la sesión de caja **abierta**, basta con que deje de contar en el efectivo esperado de esa sesión. Si pertenece a una sesión **ya cerrada**, la devolución sale de la caja abierta actual: se registra un `egreso` en `movimientos_caja` por el total (motivo `Anulación venta <id corto>: <motivo>`); si no hay caja abierta responde 400 (`MU001`, "Abrí la caja para registrar la devolución en efectivo"). Las ventas con `Tarjeta` o `QR` no generan movimiento de caja.
+
+| Caso | HTTP | Origen |
+|---|---|---|
+| `motivo` vacío o de más de 200 caracteres, id mal formado | 422 | Pydantic |
+| No es admin | 403 | `RoleChecker` |
+| Venta inexistente | 404 | `MU004` |
+| La venta ya estaba anulada | 409 | `MU006` |
+| Venta en efectivo de una sesión cerrada y no hay caja abierta | 400 | `MU001` |
+
 **Notas:**
-- `GET /hoy` calcula "hoy" en `America/Argentina/Buenos_Aires` (`zoneinfo` + paquete `tzdata`, necesario en Windows) y filtra `created_at >= medianoche local` y `< medianoche local siguiente`, expresadas en UTC. Recorre todas las páginas con `fetch_all()`, sin truncar en 1000 filas.
+- `GET /hoy` calcula "hoy" en `America/Argentina/Buenos_Aires` (`zoneinfo` + paquete `tzdata`, necesario en Windows) y filtra `estado = 'completada'`, `created_at >= medianoche local` y `< medianoche local siguiente`, expresadas en UTC. Recorre todas las páginas con `fetch_all()`, sin truncar en 1000 filas.
+- `GET /` y `GET /{id}` usan embedding de PostgREST: `cliente:clientes(id, nombre)`, `usuario:perfiles!usuario_id(id, nombre)`, `anulada_por:perfiles!anulada_por(id, nombre)` e `items:venta_detalle(..., variante:producto_variantes(sku, talle, color, producto:productos(nombre)))`. El conteo del listado sale de `select(..., count="exact")`.
+- `GET /hoy` está declarado antes de `GET /{id}` para que `hoy` no se interprete como un id.
 - `venta_detalle.subtotal` es columna generada en DB (`cantidad * precio_unitario`).
-- El campo `fecha` en `ventas` es redundante con `created_at`; la consulta de "hoy" filtra por `created_at`.
+- El campo `fecha` en `ventas` es redundante con `created_at`; las consultas filtran por `created_at`.
 
 ---
 
@@ -751,7 +859,7 @@ Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY
 |---|---|---|---|
 | 1 | `reporte_service.py` | ✅ **Resuelto** | `obtener_top_productos()` consultaba `venta_items`/`variantes`. Corregido a `venta_detalle`/`producto_variantes`. |
 | 2 | `venta_service.py` | ✅ **Resuelto** | `total_costo` ahora se calcula como suma de `costo_unitario × cantidad` y se persiste en `ventas`. |
-| 3 | `venta_service.py`, `producto_service.py` | ✅ **Resuelto** | El descuento de stock no era atómico. Ahora `crear_venta()` y `update_stock()` usan las funciones SQL `crear_venta` y `ajustar_stock` (una transacción, con bloqueo de filas). |
+| 3 | `venta_service.py`, `producto_service.py` | ✅ **Resuelto** | El descuento de stock no era atómico. Ahora `crear_venta()` y `update_stock()` usan funciones SQL (hoy `registrar_venta` y `registrar_ajuste_stock`) (una transacción, con bloqueo de filas). |
 | 4 | `schemas/caja.py` | ✅ **Resuelto** | `CajaMovimientoResponse` migrado a Pydantic v2 `model_config`. Serialización de `creado_en→created_at` y `motivo→descripcion` verificada. |
 | 5 | `schemas/productos.py` | ✅ **Aclarado** | El campo `color` SÍ existe en `producto_variantes`. El comentario era incorrecto. |
 | 6 | `caja_service.py` | ✅ **Por diseño (confirmado)** | La caja es global: una única sesión abierta para todos los usuarios, garantizada por un índice único. |
@@ -759,7 +867,7 @@ Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY
 | 8 | `endpoints/caja.py` | ✅ **Resuelto** | `POST /caja/movimiento` ahora usa `CajaMovimientoResponse` (`descripcion`/`created_at`), igual que los listados. |
 | 9 | `auth_deps.py` | ✅ **Resuelto** | El cache de tokens no tenía límite y duraba 5 min. Ahora es un `TTLCache` acotado (1024 entradas, 60 s) con `invalidate_user()` al cambiar rol o estado. Sigue siendo por proceso (no se comparte entre workers). |
 | 10 | `productos` | ℹ️ Falta feature | No hay forma de asignar categorías a un producto vía API. |
-| 11 | `venta_service.py` | ✅ **Resuelto** | `crear_venta()` confiaba en `precio_unitario` y en el total enviados por el cliente. Ahora los precios salen de la base (RPC `crear_venta`) y hay idempotencia por header `Idempotency-Key`. |
+| 11 | `venta_service.py` | ✅ **Resuelto** | `crear_venta()` confiaba en `precio_unitario` y en el total enviados por el cliente. Ahora los precios salen de la base (RPC `registrar_venta`) y hay idempotencia por header `Idempotency-Key`. |
 | 12 | `caja_service.py` | ✅ **Resuelto** | El cierre usaba la RPC `finalizar_cierre_caja`, que tenía errores. Ahora usa `cerrar_caja`. |
 | 13 | `venta_service.py`, `reporte_service.py` | ✅ **Resuelto** | "Hoy" usaba la fecha local del servidor y los reportes comparaban timestamps sin zona horaria. Ahora todo se calcula con la fecha local de Argentina. |
 | 14 | `cliente_service.py` | ✅ **Resuelto** | El término de búsqueda se interpolaba sin sanear en el filtro `or=(...)` de PostgREST (inyección de filtros). |
@@ -772,6 +880,7 @@ Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY
 | 21 | `endpoints/usuarios.py` | ✅ **Resuelto** | `PATCH /usuarios/{id}/rol` no validaba el rol, permitía que un admin se quitara su propio rol o dejara el sistema sin administradores, y no dejaba auditoría. No había forma de desactivar un usuario por API. |
 | 22 | varios endpoints | ✅ **Resuelto** | Los ids UUID de la URL eran `str`: un valor mal formado llegaba a PostgREST (error `22P02`). Ahora se validan como `uuid.UUID` (422). |
 | 23 | `usuario_service.py` | ℹ️ Menor | La verificación del último administrador activo no es atómica (lectura + escritura). |
+| 24 | base de datos | ℹ️ Pendiente | Las funciones `crear_venta`, `ajustar_stock` y `finalizar_cierre_caja` quedaron obsoletas y siguen en la base hasta que se haga el `DROP`. |
 
 ---
 
