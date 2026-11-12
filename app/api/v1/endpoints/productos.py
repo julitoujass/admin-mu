@@ -6,6 +6,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from app.api.auth_deps import RoleChecker, get_current_user
 from app.schemas.common import OkResponse
 from app.schemas.productos import (
+    LowStockResponse,
+    ProductCategoriesUpdate,
     ProductCreate,
     ProductResponse,
     ProductUpdate,
@@ -43,6 +45,36 @@ def get_products(categoria_id: Optional[int] = None, current_user = Depends(get_
     if _can_see_costs(current_user):
         return products
     return [_without_costs(product) for product in products]
+
+# Declared before any `/{id}` route so "stock-bajo" is never parsed as a product id.
+@router.get("/stock-bajo", response_model=LowStockResponse)
+def get_low_stock(current_user = Depends(get_current_user)):
+    return ProductService.get_low_stock()
+
+@router.put("/{id}/categorias", response_model=ProductResponse)
+def set_product_categories(
+    id: UUID,
+    update: ProductCategoriesUpdate,
+    background_tasks: BackgroundTasks,
+    current_user = Depends(RoleChecker(["admin"])),
+):
+    try:
+        product = ProductService.set_categories(str(id), update.categoria_ids)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    audit(
+        background_tasks,
+        current_user,
+        "UPDATE",
+        "productos",
+        entidad_id=str(id),
+        descripcion="Categorías actualizadas",
+        payload=update.model_dump(),
+        respuesta=product,
+    )
+    return product
 
 @router.get("/sku/{sku}", response_model=ProductResponse)
 def get_product_by_sku(sku: str, current_user = Depends(get_current_user)):

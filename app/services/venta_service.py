@@ -3,14 +3,20 @@ from datetime import date, datetime, time
 from app.core.db_utils import fetch_all, single_row
 from app.core.supabase import supabase
 from app.core.timeutils import ARGENTINA_TZ, local_day_bounds_utc, now_argentina
-from app.schemas.ventas import VentaCreate
+from app.schemas.ventas import DevolucionCreate, VentaCreate
 
 # Only what the POS needs; cost columns (total_costo) are never exposed here.
 VENTA_PUBLIC_COLUMNS = "id, created_at, subtotal, descuento_aplicado, recargo_aplicado, total, metodo_pago, estado"
 
 # `ventas` has two foreign keys to `perfiles` (usuario_id, anulada_por), so every
 # embed of `perfiles` names the column it follows.
-VENTA_LIST_COLUMNS = f"{VENTA_PUBLIC_COLUMNS}, cliente:clientes(id, nombre), usuario:perfiles!usuario_id(id, nombre)"
+VENTA_BASE_COLUMNS = f"{VENTA_PUBLIC_COLUMNS}, cliente:clientes(id, nombre), usuario:perfiles!usuario_id(id, nombre)"
+# The list only needs the refund amounts (summed into `total_devuelto`).
+VENTA_LIST_COLUMNS = f"{VENTA_BASE_COLUMNS}, devoluciones(monto)"
+DEVOLUCION_COLUMNS = (
+    "devoluciones(id, created_at, motivo, monto, metodo_pago, usuario:perfiles!usuario_id(id, nombre), "
+    "items:devolucion_items(variante_id, cantidad, monto))"
+)
 
 
 def _venta_detail_columns(include_costs: bool) -> str:
@@ -18,10 +24,21 @@ def _venta_detail_columns(include_costs: bool) -> str:
     total_cost = ", total_costo" if include_costs else ""
     item_cost = ", costo_unitario" if include_costs else ""
     return (
-        f"{VENTA_LIST_COLUMNS}, motivo_anulacion, anulada_at, anulada_por:perfiles!anulada_por(id, nombre){total_cost}, "
+        f"{VENTA_BASE_COLUMNS}, motivo_anulacion, anulada_at, anulada_por:perfiles!anulada_por(id, nombre){total_cost}, "
         f"items:venta_detalle(variante_id, cantidad, precio_unitario, subtotal{item_cost}, "
-        "variante:producto_variantes(sku, talle, color, producto:productos(nombre)))"
+        "variante:producto_variantes(sku, talle, color, producto:productos(nombre))), "
+        f"{DEVOLUCION_COLUMNS}"
     )
+
+
+def _sum_amounts(rows: list[dict]) -> float:
+    return round(sum(float(row.get("monto") or 0) for row in rows), 2)
+
+
+def _with_total_devuelto(row: dict) -> dict:
+    """List row: replace the embedded refund amounts by their sum."""
+    rest = {key: value for key, value in row.items() if key != "devoluciones"}
+    return {**rest, "total_devuelto": _sum_amounts(row.get("devoluciones") or [])}
 
 
 def _flatten_item(item: dict) -> dict:
@@ -115,7 +132,7 @@ class VentaService:
         res = (
             query.order("created_at", desc=True).order("id", desc=True).range(offset, offset + limit - 1).execute()
         )
-        items = res.data or []
+        items = [_with_total_devuelto(row) for row in res.data or []]
         return {"items": items, "total": res.count if res.count is not None else len(items)}
 
     @staticmethod
@@ -127,7 +144,36 @@ class VentaService:
         if not res.data:
             return None
         venta = res.data[0]
-        return {**venta, "items": [_flatten_item(item) for item in venta.get("items") or []]}
+        returns = sorted(venta.get("devoluciones") or [], key=lambda ret: ret.get("created_at") or "")
+        returned: dict[str, int] = {}
+        for ret in returns:
+            for item in ret.get("items") or []:
+                key = str(item["variante_id"])
+                returned[key] = returned.get(key, 0) + item["cantidad"]
+        items = []
+        for item in venta.get("items") or []:
+            flat = _flatten_item(item)
+            flat["cantidad_devuelta"] = returned.get(str(flat.get("variante_id")), 0)
+            items.append(flat)
+        return {**venta, "items": items, "devoluciones": returns, "total_devuelto": _sum_amounts(returns)}
+
+    @staticmethod
+    def devolver_venta(venta_id: str, usuario_id: str, datos: DevolucionCreate):
+        """Register a partial return through the `registrar_devolucion` database function.
+
+        In one transaction it restocks the variants (with ledger rows) and records the refund,
+        proportional to the sale's discount/surcharge; a cash refund is an egreso of the open
+        register. Raises APIError MU004 (not found), MU008 (sale cancelled), MU009 (quantity above
+        what is left to return), MU001 (cash refund needs an open register) or MU003 (invalid input).
+        """
+        params = {
+            "p_venta_id": str(venta_id),
+            "p_usuario_id": str(usuario_id),
+            "p_motivo": datos.motivo,
+            "p_items": [{"variante_id": str(item.variante_id), "cantidad": item.cantidad} for item in datos.items],
+        }
+        res = supabase.rpc("registrar_devolucion", params).execute()
+        return single_row(res.data)
 
     @staticmethod
     def anular_venta(venta_id: str, usuario_id: str, motivo: str):

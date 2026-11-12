@@ -124,3 +124,17 @@ def test_delete_missing_categoria_returns_404(auth_client, monkeypatch):
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Categoría no encontrada"}
+
+
+def test_validation_errors_do_not_echo_submitted_values(auth_client):
+    secret = "short1"
+    response = auth_client.post(
+        "/api/v1/usuarios/",
+        json={"email": "nuevo@example.com", "password": secret, "nombre": "Ana", "rol_id": 2},
+    )
+
+    assert response.status_code == 422
+    assert secret not in response.text
+    errors = response.json()["detail"]
+    assert errors and all("input" not in error for error in errors)
+    assert all({"loc", "msg", "type"} <= error.keys() for error in errors)

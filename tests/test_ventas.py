@@ -292,10 +292,16 @@ LIST_ITEM = {
     "estado": "completada",
     "cliente": {"id": CLIENT_ID, "nombre": "Ana"},
     "usuario": {"id": USER_ID, "nombre": "Admin"},
+    "total_devuelto": 0.0,
 }
-LIST_SELECT = (
+BASE_SELECT = (
     "id, created_at, subtotal, descuento_aplicado, recargo_aplicado, total, metodo_pago, estado, "
     "cliente:clientes(id, nombre), usuario:perfiles!usuario_id(id, nombre)"
+)
+LIST_SELECT = BASE_SELECT + ", devoluciones(monto)"
+RETURNS_SELECT = (
+    "devoluciones(id, created_at, motivo, monto, metodo_pago, usuario:perfiles!usuario_id(id, nombre), "
+    "items:devolucion_items(variante_id, cantidad, monto))"
 )
 
 
@@ -419,6 +425,7 @@ DETAIL_EMPLOYEE = {
     "motivo_anulacion": None,
     "anulada_at": None,
     "anulada_por": None,
+    "devoluciones": [],
     "items": [
         {
             "variante_id": VARIANT_A,
@@ -427,6 +434,7 @@ DETAIL_EMPLOYEE = {
             "talle": "M",
             "color": "Azul",
             "cantidad": 2,
+            "cantidad_devuelta": 0,
             "precio_unitario": 1500.0,
             "subtotal": 3000.0,
         },
@@ -437,6 +445,7 @@ DETAIL_EMPLOYEE = {
             "talle": None,
             "color": None,
             "cantidad": 1,
+            "cantidad_devuelta": 0,
             "precio_unitario": 10.0,
             "subtotal": 10.0,
         },
@@ -451,10 +460,11 @@ DETAIL_ADMIN = {
     ],
 }
 DETAIL_SELECT = (
-    LIST_SELECT
+    BASE_SELECT
     + ", motivo_anulacion, anulada_at, anulada_por:perfiles!anulada_por(id, nombre){total_cost}, "
     + "items:venta_detalle(variante_id, cantidad, precio_unitario, subtotal{cost}, "
-    + "variante:producto_variantes(sku, talle, color, producto:productos(nombre)))"
+    + "variante:producto_variantes(sku, talle, color, producto:productos(nombre))), "
+    + RETURNS_SELECT
 )
 ADMIN_DETAIL_SELECT = DETAIL_SELECT.format(cost=", costo_unitario", total_cost=", total_costo")
 EMPLOYEE_DETAIL_SELECT = DETAIL_SELECT.format(cost="", total_cost="")

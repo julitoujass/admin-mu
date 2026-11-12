@@ -13,12 +13,18 @@ class FiltroFechaBase(BaseModel):
 # 1. Sales by date
 class VentaDia(BaseModel):
     fecha: date
+    # Net of the refunds registered that day.
     total: float
+    bruto: float = 0
+    devoluciones: float = 0
     cantidad_ventas: int
 
 
 class VentasTotalesReporte(BaseModel):
+    # NET revenue: gross sales minus refunds (by return date).
     total_ingresos: float
+    total_bruto: float = 0
+    total_devoluciones: float = 0
     cantidad_operaciones: int
     ventas_por_dia: List[VentaDia]
 

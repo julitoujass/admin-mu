@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, 
 
 from app.api.auth_deps import RoleChecker, get_current_user
 from app.schemas.ventas import (
+    DevolucionCreate,
     EstadoVenta,
     MetodoPago,
     VentaAnular,
@@ -116,6 +117,27 @@ def anular_venta(
         entidad_id=str(id),
         descripcion=f"Motivo: {datos.motivo}",
         payload=datos.model_dump(),
+        respuesta=result,
+    )
+    return _sale_detail(str(id), include_costs=True)
+
+
+@router.post("/{id}/devoluciones", response_model=VentaDetalleAdminResponse)
+def devolver_venta(
+    id: UUID,
+    datos: DevolucionCreate,
+    background_tasks: BackgroundTasks,
+    current_user=Depends(RoleChecker(["admin"])),
+):
+    result = VentaService.devolver_venta(str(id), current_user.id, datos)
+    audit(
+        background_tasks,
+        current_user,
+        "RETURN_SALE",
+        "ventas",
+        entidad_id=str(id),
+        descripcion=f"Motivo: {datos.motivo}",
+        payload=datos.model_dump(mode="json"),
         respuesta=result,
     )
     return _sale_detail(str(id), include_costs=True)

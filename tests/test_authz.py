@@ -3,9 +3,11 @@
 import pytest
 
 from app.services import (
+    auditoria_service,
     caja_service,
     catalogo_service,
     cliente_service,
+    configuracion_service,
     producto_service,
     reporte_service,
     usuario_service,
@@ -32,6 +34,7 @@ VARIANT_ROW = {
     "stock_minimo": 2,
 }
 PRODUCT_ROW = {"id": PRODUCT_ID, "nombre": "Remera", "variantes": [VARIANT_ROW]}
+SETTINGS_ROW = {"id": 1, "nombre_negocio": "Mundo Uniforme", "descuento_max_empleado": 10}
 MARCA_ROW = {"id": 1, "nombre": "Acme"}
 CATEGORIA_ROW = {"id": 1, "nombre": "Remeras"}
 CLIENT_ROW = {"id": CLIENT_ID, "nombre": "Ana", "created_at": "2026-11-11T12:00:00+00:00"}
@@ -109,6 +112,8 @@ STOCK_BODY = {"variante_id": VARIANT_ID, "cantidad": 1, "motivo": "Ajuste"}
 SALE_BODY = {"items": [{"variante_id": VARIANT_ID, "cantidad": 1}], "metodo_pago": "Efectivo"}
 
 SERVICE_MODULES = (
+    auditoria_service,
+    configuracion_service,
     caja_service,
     catalogo_service,
     cliente_service,
@@ -139,6 +144,16 @@ ADMIN_ONLY_ROUTES = [
     ("PATCH", "/productos/inventario/stock", STOCK_BODY, [VARIANT_ROW]),
     ("GET", f"/productos/variante/{VARIANT_ID}/movimientos", None, [[STOCK_MOVEMENT_ROW]]),
     ("POST", f"/ventas/{SALE_ID}/anular", {"motivo": "Error de carga"}, [SALE_ROW, [SALE_DETAIL_ROW]]),
+    (
+        "POST",
+        f"/ventas/{SALE_ID}/devoluciones",
+        {"motivo": "Talle", "items": [{"variante_id": VARIANT_ID, "cantidad": 1}]},
+        [SALE_ROW, [SALE_DETAIL_ROW]],
+    ),
+    ("PATCH", "/configuracion/", {"cuit": "20"}, [[{"id": 1}], [SETTINGS_ROW]]),
+    ("PUT", f"/productos/{PRODUCT_ID}/categorias", {"categoria_ids": []}, [[PRODUCT_ROW], [], [PRODUCT_ROW]]),
+    ("GET", "/auditoria/", None, [[]]),
+    ("POST", "/usuarios/", None, None),
     ("POST", "/catalogos/marcas", {"nombre": "Acme"}, [[MARCA_ROW]]),
     ("PATCH", "/catalogos/marcas/1", {"nombre": "Acme"}, [[MARCA_ROW]]),
     ("DELETE", "/catalogos/marcas/1", None, [[], [MARCA_ROW]]),
@@ -176,6 +191,8 @@ EMPLOYEE_ROUTES = [
     ("POST", "/clientes/", {"nombre": "Ana"}, [[CLIENT_ROW]]),
     ("PATCH", f"/clientes/{CLIENT_ID}", {"nombre": "Ana"}, [[CLIENT_ROW]]),
     ("GET", "/usuarios/me", None, []),
+    ("GET", "/configuracion/", None, [[SETTINGS_ROW]]),
+    ("GET", "/productos/stock-bajo", None, [[]]),
 ]
 
 

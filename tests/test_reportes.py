@@ -7,10 +7,12 @@ from tests.fakes import FakeSupabase
 
 SALES_REPORT = {
     "total_ingresos": 4500.5,
+    "total_bruto": 5000,
+    "total_devoluciones": 499.5,
     "cantidad_operaciones": 3,
     "ventas_por_dia": [
-        {"fecha": "2026-11-10", "total": 1500.5, "cantidad_ventas": 1},
-        {"fecha": "2026-11-11", "total": 3000, "cantidad_ventas": 2},
+        {"fecha": "2026-11-10", "total": 1500.5, "bruto": 2000, "devoluciones": 499.5, "cantidad_ventas": 1},
+        {"fecha": "2026-11-11", "total": 3000, "bruto": 3000, "devoluciones": 0, "cantidad_ventas": 2},
     ],
 }
 TOP_ROW = {
@@ -51,10 +53,12 @@ def test_sales_report_comes_from_rpc(auth_client, monkeypatch):
     assert db.queries[0].params == {"p_desde": "2026-11-01", "p_hasta": "2026-11-11"}
     assert response.json() == {
         "total_ingresos": 4500.5,
+        "total_bruto": 5000.0,
+        "total_devoluciones": 499.5,
         "cantidad_operaciones": 3,
         "ventas_por_dia": [
-            {"fecha": "2026-11-10", "total": 1500.5, "cantidad_ventas": 1},
-            {"fecha": "2026-11-11", "total": 3000.0, "cantidad_ventas": 2},
+            {"fecha": "2026-11-10", "total": 1500.5, "bruto": 2000.0, "devoluciones": 499.5, "cantidad_ventas": 1},
+            {"fecha": "2026-11-11", "total": 3000.0, "bruto": 3000.0, "devoluciones": 0.0, "cantidad_ventas": 2},
         ],
     }
 
@@ -65,7 +69,13 @@ def test_sales_report_without_dates_is_unbounded(auth_client, monkeypatch):
     response = auth_client.get("/api/v1/reportes/ventas")
 
     assert db.queries[0].params == {"p_desde": None, "p_hasta": None}
-    assert response.json() == {"total_ingresos": 0.0, "cantidad_operaciones": 0, "ventas_por_dia": []}
+    assert response.json() == {
+        "total_ingresos": 0.0,
+        "total_bruto": 0.0,
+        "total_devoluciones": 0.0,
+        "cantidad_operaciones": 0,
+        "ventas_por_dia": [],
+    }
 
 
 def test_top_products_report_comes_from_rpc_with_default_limit(auth_client, monkeypatch):

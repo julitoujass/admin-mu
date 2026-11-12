@@ -1,11 +1,23 @@
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from postgrest.exceptions import APIError
 
-from app.api.v1.endpoints import caja, catalogos, clientes, productos, reportes, usuarios, ventas
+from app.api.v1.endpoints import (
+    auditoria,
+    caja,
+    catalogos,
+    clientes,
+    configuracion,
+    productos,
+    reportes,
+    usuarios,
+    ventas,
+)
 from app.core.config import settings
 from app.core.exceptions import CajaError, UsuarioError
 from app.core.supabase import supabase
@@ -37,6 +49,9 @@ DB_BUSINESS_ERROR_STATUS = {
     "MU005": 409,  # cash session already closed
     "MU006": 409,  # sale already cancelled
     "MU007": 403,  # discount above the limit allowed for the role
+    "MU008": 409,  # sale is cancelled (cannot be returned)
+    "MU009": 409,  # return quantity above what is left to return
+    "MU010": 409,  # sale has returns (cannot be cancelled)
 }
 
 app = FastAPI(title="Uniforms POS API", version="1.0.0")
@@ -87,6 +102,17 @@ async def api_error_handler(request: Request, exc: APIError):
     return JSONResponse(status_code=status_code, content={"detail": detail})
 
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # FastAPI's default 422 echoes the rejected value ("input"), which would send back
+    # secrets such as passwords. Keep only the location, message and type of each error.
+    errors = [
+        {"loc": error.get("loc"), "msg": error.get("msg"), "type": error.get("type")}
+        for error in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     logger.error("Unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
@@ -101,6 +127,8 @@ app.include_router(clientes.router, prefix="/api/v1/clientes", tags=["Clientes"]
 app.include_router(reportes.router, prefix="/api/v1/reportes", tags=["Reportes"])
 app.include_router(catalogos.router, prefix="/api/v1/catalogos", tags=["Catálogos"])
 app.include_router(usuarios.router, prefix="/api/v1/usuarios", tags=["Usuarios"])
+app.include_router(configuracion.router, prefix="/api/v1/configuracion", tags=["Configuración"])
+app.include_router(auditoria.router, prefix="/api/v1/auditoria", tags=["Auditoría"])
 
 
 @app.get("/")

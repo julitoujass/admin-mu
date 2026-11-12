@@ -248,7 +248,7 @@ def test_catalog_is_fetched_page_by_page_until_empty(auth_client, monkeypatch):
     assert len(response.json()) == 1250
     assert [(q.kind, q.name, q.params) for q in db.executed] == [("rpc", "obtener_productos", {})] * 3
     assert [q.args_of("range") for q in db.executed] == [[(0, 999)], [(1000, 1999)], [(1250, 2249)]]
-    assert all(q.args_of("select") == [("*, variantes:producto_variantes(*)",)] for q in db.executed)
+    assert all(q.args_of("select") == [(f"*, {producto_service.PRODUCT_EMBEDS}",)] for q in db.executed)
 
 
 def test_catalog_paging_survives_a_smaller_server_page(auth_client, monkeypatch):

@@ -51,6 +51,16 @@ class VentaAnular(BaseModel):
     motivo: MotivoAnulacion
 
 
+class DevolucionItemCreate(BaseModel):
+    variante_id: UUID
+    cantidad: int = Field(gt=0, le=1000)
+
+
+class DevolucionCreate(BaseModel):
+    motivo: MotivoAnulacion
+    items: List[DevolucionItemCreate] = Field(min_length=1, max_length=200)
+
+
 class VentaResponse(BaseModel):
     id: UUID
     created_at: datetime
@@ -72,6 +82,8 @@ class PersonaRef(BaseModel):
 class VentaListItem(VentaResponse):
     cliente: Optional[PersonaRef] = None
     usuario: Optional[PersonaRef] = None
+    # Sum of the refunds registered for the sale (0 when it has none).
+    total_devuelto: Monto = 0
 
 
 class VentaListResponse(BaseModel):
@@ -87,6 +99,8 @@ class VentaDetalleItem(BaseModel):
     talle: Optional[str] = None
     color: Optional[str] = None
     cantidad: int
+    # Units of this variant already returned (sum over the sale's returns).
+    cantidad_devuelta: int = 0
     precio_unitario: float
     subtotal: float
 
@@ -95,10 +109,27 @@ class VentaDetalleItemAdmin(VentaDetalleItem):
     costo_unitario: Monto
 
 
+class DevolucionItemResponse(BaseModel):
+    variante_id: UUID
+    cantidad: int
+    monto: Monto
+
+
+class DevolucionResponse(BaseModel):
+    id: UUID
+    created_at: datetime
+    motivo: str
+    monto: Monto
+    metodo_pago: str
+    usuario: Optional[PersonaRef] = None
+    items: List[DevolucionItemResponse] = []
+
+
 class _VentaDetalleBase(VentaListItem):
     motivo_anulacion: Optional[str] = None
     anulada_at: Optional[datetime] = None
     anulada_por: Optional[PersonaRef] = None
+    devoluciones: List[DevolucionResponse] = []
 
 
 # The two detail models are siblings (not parent/child) on purpose: the endpoint

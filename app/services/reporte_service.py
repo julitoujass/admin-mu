@@ -20,6 +20,8 @@ class ReporteService:
         data = supabase.rpc("reporte_ventas", _range_params(fecha_inicio, fecha_fin)).execute().data or {}
         return {
             "total_ingresos": data.get("total_ingresos") or 0,
+            "total_bruto": data.get("total_bruto") or 0,
+            "total_devoluciones": data.get("total_devoluciones") or 0,
             "cantidad_operaciones": data.get("cantidad_operaciones") or 0,
             "ventas_por_dia": data.get("ventas_por_dia") or [],
         }

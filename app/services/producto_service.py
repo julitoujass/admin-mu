@@ -7,6 +7,18 @@ STOCK_MOVEMENT_COLUMNS = (
 )
 
 
+# Variants and categories (through the `producto_categorias` junction) embedded in a product.
+PRODUCT_EMBEDS = "variantes:producto_variantes(*), categorias:producto_categorias(categoria:categorias(id, nombre))"
+CATEGORIES_NOT_FOUND = "Alguna de las categorías indicadas no existe"
+
+
+def _with_categorias(product: dict) -> dict:
+    """Flatten the junction rows `[{categoria: {id, nombre}}]` into `[{id, nombre}]`, ordered by name."""
+    rows = product.get("categorias") or []
+    categories = [row["categoria"] for row in rows if row.get("categoria")]
+    return {**product, "categorias": sorted(categories, key=lambda category: category["nombre"])}
+
+
 class ProductService:
     @staticmethod
     def get_products(categoria_id: int | None = None):
@@ -20,12 +32,47 @@ class ProductService:
             params["p_categoria_id"] = categoria_id
 
         # RPC filters by category when asked; the chained select embeds the variants.
-        return fetch_all(
-            lambda: supabase.rpc("obtener_productos", params)
-            .select("*, variantes:producto_variantes(*)")
-            .order("nombre")
-            .order("id")
+        rows = fetch_all(
+            lambda: supabase.rpc("obtener_productos", params).select(f"*, {PRODUCT_EMBEDS}").order("nombre").order("id")
         )
+        return [_with_categorias(row) for row in rows]
+
+    @staticmethod
+    def get_product(product_id: str) -> dict | None:
+        """One product with its variants and categories, or None."""
+        res = supabase.table("productos").select(f"*, {PRODUCT_EMBEDS}").eq("id", product_id).limit(1).execute()
+        return _with_categorias(res.data[0]) if res.data else None
+
+    @staticmethod
+    def set_categories(product_id: str, category_ids: list[int]) -> dict | None:
+        """Replace the categories of a product; None when it does not exist.
+
+        Raises ValueError when some category id does not exist. Only the difference is written
+        (rows to remove, rows to add), so an unchanged set touches nothing. Not atomic.
+        """
+        found = supabase.table("productos").select("id").eq("id", product_id).limit(1).execute()
+        if not found.data:
+            return None
+        wanted = set(category_ids)
+        if wanted:
+            existing = supabase.table("categorias").select("id").in_("id", sorted(wanted)).execute().data or []
+            if {row["id"] for row in existing} != wanted:
+                raise ValueError(CATEGORIES_NOT_FOUND)
+        current_rows = supabase.table("producto_categorias").select("categoria_id").eq("producto_id", product_id).execute()
+        current = {row["categoria_id"] for row in current_rows.data or []}
+        removed, added = sorted(current - wanted), sorted(wanted - current)
+        if removed:
+            supabase.table("producto_categorias").delete().eq("producto_id", product_id).in_("categoria_id", removed).execute()
+        if added:
+            rows = [{"producto_id": product_id, "categoria_id": category_id} for category_id in added]
+            supabase.table("producto_categorias").insert(rows).execute()
+        return ProductService.get_product(product_id)
+
+    @staticmethod
+    def get_low_stock() -> dict:
+        """Variants at or below their minimum stock (`variantes_stock_bajo`); never includes costs."""
+        items = supabase.rpc("variantes_stock_bajo").execute().data or []
+        return {"items": items, "total": len(items)}
 
     @staticmethod
     def create_product(product: ProductCreate):
@@ -96,9 +143,9 @@ class ProductService:
         product_id = variant_res.data[0]["producto_id"]
         
         # Fetch the full product with all its variants
-        product_res = supabase.table("productos").select("*, variantes:producto_variantes(*)").eq("id", product_id).single().execute()
-        
-        return product_res.data
+        product_res = supabase.table("productos").select(f"*, {PRODUCT_EMBEDS}").eq("id", product_id).single().execute()
+
+        return _with_categorias(product_res.data)
 
     @staticmethod
     def delete_variant(variant_id: str) -> bool:

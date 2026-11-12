@@ -70,6 +70,11 @@ class ProductUpdate(BaseModel):
     marca_id: Optional[int] = None
 
 
+class CategoriaRef(BaseModel):
+    id: int
+    nombre: str
+
+
 class ProductResponse(BaseModel):
     id: UUID4
     nombre: str
@@ -77,6 +82,38 @@ class ProductResponse(BaseModel):
     marca_id: Optional[int] = None
     created_at: Optional[datetime] = None
     variantes: List[VariantResponse] = []
+    categorias: List[CategoriaRef] = []
+
+
+class ProductCategoriesUpdate(BaseModel):
+    """Replaces the whole set of categories of a product (an empty list clears it)."""
+
+    categoria_ids: List[int] = Field(max_length=50)
+
+    @field_validator("categoria_ids")
+    @classmethod
+    def _unique_ids(cls, value: List[int]) -> List[int]:
+        if len(set(value)) != len(value):
+            raise ValueError("categoria_ids no puede tener ids repetidos")
+        return value
+
+
+class LowStockItem(BaseModel):
+    """Variant at or below its minimum stock. No cost data."""
+
+    variante_id: UUID
+    producto_id: UUID
+    producto_nombre: str
+    sku: Optional[str] = None
+    talle: Optional[str] = None
+    color: Optional[str] = None
+    stock_actual: int
+    stock_minimo: int
+
+
+class LowStockResponse(BaseModel):
+    items: List[LowStockItem]
+    total: int
 
 
 class StockUpdate(BaseModel):

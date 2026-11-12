@@ -8,6 +8,8 @@ from app.schemas.usuarios import (
     MeResponse,
     RoleResponse,
     UsuarioActivoUpdate,
+    UsuarioCreadoResponse,
+    UsuarioCreate,
     UsuarioResponse,
     UsuarioRoleUpdate,
 )
@@ -30,6 +32,25 @@ def get_me(current_user = Depends(get_current_user)):
 @router.get("/", response_model=List[UsuarioResponse])
 def get_usuarios(current_user = Depends(RoleChecker(["admin"]))):
     return UsuarioService.get_usuarios()
+
+@router.post("/", response_model=UsuarioCreadoResponse)
+def create_usuario(
+    data: UsuarioCreate,
+    background_tasks: BackgroundTasks,
+    current_user = Depends(RoleChecker(["admin"])),
+):
+    usuario = UsuarioService.create_usuario(data)
+    audit(
+        background_tasks,
+        current_user,
+        "CREATE",
+        "perfiles",
+        entidad_id=usuario["id"],
+        # The password never reaches the audit log.
+        payload=data.model_dump(exclude={"password"}),
+        respuesta=usuario,
+    )
+    return usuario
 
 @router.get("/roles", response_model=List[RoleResponse])
 def get_roles(current_user = Depends(RoleChecker(["admin"]))):

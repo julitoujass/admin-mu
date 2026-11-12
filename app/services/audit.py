@@ -15,6 +15,7 @@ AuditEvent = Literal[
     "CASH_MOVEMENT",
     "CREATE_SALE",
     "CANCEL_SALE",
+    "RETURN_SALE",
     "UPDATE_ROL",
     "UPDATE_ACTIVO",
 ]
