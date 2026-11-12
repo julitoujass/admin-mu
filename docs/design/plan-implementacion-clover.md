@@ -7,7 +7,6 @@
 
 | Etapa | Qué entrega | Depende de | Esfuerzo estimado |
 |---|---|---|---|
-| A | Referencia manual del pago (valor inmediato) | Nada | 1 día |
 | B | Núcleo: modelo, puerto de terminal, orquestación y UI con terminal simulado | Nada | 4–5 días |
 | C | Adaptador Clover + OAuth + página de integración | Cuenta de desarrollador y sandbox | 3–4 días |
 | D | Anulaciones y devoluciones contra el terminal | B, C | 2 días |
@@ -15,18 +14,7 @@
 | F | QR | Respuesta de Fiserv | 1–2 días |
 | G | Piloto y puesta en producción | C, D | 1 semana de uso real |
 
-Las etapas A y B se pueden hacer **en paralelo** a la gestión con Fiserv.
-
----
-
-## Etapa A — Referencia manual del pago (sin integración)
-
-**Para qué:** desde hoy, poder conciliar cada venta con tarjeta/QR contra el reporte del Clover. Los mismos campos los va a llenar la integración después.
-
-- **DB:** migración que agrega a `ventas` las columnas `pago_proveedor` (`'manual'|'clover'`), `pago_referencia` (código de autorización), `pago_ultimos4`, `pago_marca` y `pago_cuotas`, con CHECKs de formato (4 dígitos, cuotas 1..99). `registrar_venta` acepta esos datos opcionales (nuevo parámetro con default; como cambiar la firma crea una sobrecarga, se publica como `registrar_venta` v2 con nombre nuevo y el backend pasa a usarla).
-- **Backend:** `VentaCreate` acepta `pago_referencia`, `pago_ultimos4`, `pago_marca`, `pago_cuotas` (solo si `metodo_pago` ≠ Efectivo). Se devuelven en el detalle y en el historial.
-- **Frontend:** en el checkout, con Tarjeta/QR aparecen campos opcionales "Cód. autorización", "Últimos 4", "Cuotas". Se muestran en el detalle, el ticket y el CSV del historial.
-- **Listo cuando:** se registra una venta con referencia, aparece en detalle/ticket/CSV y los tests cubren validaciones.
+La etapa B se puede hacer **en paralelo** a la gestión con Fiserv. No hay carga manual de referencias de pago: mientras la integración no esté habilitada, el cobro con tarjeta/QR sigue como hoy.
 
 ---
 
@@ -64,10 +52,11 @@ class PaymentTerminal(Protocol):
 ### B3. Orquestación (`app/services/pago_service.py`)
 
 1. `iniciar_cobro(carrito, metodo, usuario)`: cotiza → inserta `pendiente` con el carrito y `external_payment_id` (≤ 32) → agenda la tarea → devuelve `{pago_id, total}`. Si ya hay un cobro activo: 409.
-2. `ejecutar_cobro(pago_id)` (tarea en segundo plano): `enviado` → `terminal.charge` → según resultado: `aprobado` → `registrar_venta_con_pago` → `venta_registrada`; si falla → `error_registro` → `terminal.refund` (total) → `reembolsado`. `DECLINED`/`CANCELLED` → `rechazado`/`cancelado`. `UNKNOWN` → `indeterminado`. Siempre `show_welcome` al final.
-3. `conciliar_pendientes()`: cada 30 s (tarea del `lifespan` de FastAPI), toma los `indeterminado`, consulta `find_by_external_id` con espera creciente (mínimo 3 intentos) y resuelve. Después de N intentos sin respuesta, queda para revisión manual.
-4. Cada transición actualiza `updated_at` y deja auditoría (`CHARGE_STARTED`, `CHARGE_APPROVED`, `CHARGE_FAILED`, `CHARGE_UNKNOWN`, `REFUND_DONE`).
-5. Transiciones con `update ... where estado = <esperado>` para que dos procesos no pisen el mismo pago.
+2. `ejecutar_cobro(pago_id)` (tarea en segundo plano): `enviado` → `terminal.charge` → según resultado: `aprobado` → `registrar_venta_con_pago` → `venta_registrada`; si falla → `error_registro` → `terminal.refund` (total) → `reembolsado`. `DECLINED`/`CANCELLED` → `rechazado`/`cancelado`. `UNKNOWN` → `indeterminado` y **se concilia en el acto** (paso 3). Siempre `show_welcome` al final.
+3. **Conciliación inmediata** (el caso normal): apenas el cobro da `UNKNOWN`, la misma tarea consulta `find_by_external_id` con espera creciente (≈ 2 s, 5 s, 10 s; Clover pide al menos 3 consultas antes de reintentar). El cajero y el cliente están esperando en el mostrador, así que el resultado tiene que llegar en segundos, no en el próximo ciclo de un proceso periódico. Si después de esos intentos sigue sin respuesta, queda `indeterminado` para el barrido.
+4. **Barrido de huérfanos** (`conciliar_pendientes()`, red de seguridad): corre al iniciar el backend y luego cada 60 s (tarea del `lifespan` de FastAPI). Toma (a) los `indeterminado` que la conciliación inmediata no pudo resolver y (b) los `enviado`/`pendiente` cuyo `updated_at` supera el timeout del cobro más un margen (≈ 3 min): son cobros cuyo proceso murió en el medio (reinicio, caída del servidor). Los resuelve con `find_by_external_id`. Después de N intentos sin respuesta, quedan para revisión del admin. El intervalo no es crítico: solo cubre casos raros, y mientras haya un pago sin resolver el índice de cobro único impide iniciar otro, así que no se puede cobrar dos veces.
+5. Cada transición actualiza `updated_at` y deja auditoría (`CHARGE_STARTED`, `CHARGE_APPROVED`, `CHARGE_FAILED`, `CHARGE_UNKNOWN`, `REFUND_DONE`).
+6. Transiciones con `update ... where estado = <esperado>` para que dos procesos (la tarea del cobro y el barrido) no pisen el mismo pago.
 
 ### B4. Endpoints (`app/api/v1/endpoints/pagos.py`)
 
@@ -84,13 +73,13 @@ class PaymentTerminal(Protocol):
 
 - `api.ts`, `types.ts`, hook `useTerminalPayment(pagoId)` con polling de 1 s (se detiene en estados finales; tope de 3 min con mensaje).
 - `PaymentWaitingModal` (`dismissible={false}`): "Esperando pago en el Clover…", total, botón "Cancelar"; estados de éxito, rechazo, "Verificando el pago…" e "Hubo un problema, el cobro se reembolsó".
-- Checkout: si `metodo` es Tarjeta/QR **y** la integración está habilitada, "Cobrar" usa este flujo; si no, el actual con referencia manual (Etapa A).
+- Checkout: si `metodo` es Tarjeta/QR **y** la integración está habilitada, "Cobrar" usa este flujo; si no, el actual (sin cambios).
 - Página admin "Pagos a revisar" con reintento de conciliación.
 - Al aprobar: mismo aviso que hoy con "Imprimir ticket"; el ticket muestra marca, últimos 4, autorización y cuotas.
 
 ### B6. Tests
 
-- **Backend:** unitarios del servicio con `FakeTerminal` cubriendo aprobado, rechazado, cancelado, ocupado, timeout → conciliación, error al registrar → reembolso, doble inicio (409), idempotencia (la tarea corre dos veces y hay una sola venta).
+- **Backend:** unitarios del servicio con `FakeTerminal` cubriendo aprobado, rechazado, cancelado, ocupado, timeout → conciliación inmediata, timeout persistente → barrido, proceso caído con pago `enviado` → barrido, error al registrar → reembolso, doble inicio (409), idempotencia (la tarea corre dos veces y hay una sola venta).
 - **DB:** `cotizar_venta`, MU011, índice de cobro único.
 - **Frontend:** hook de polling (timers falsos), modal por estado, checkout elige el flujo correcto.
 - **Listo cuando:** con `PAYMENT_TERMINAL=fake` se puede vender con "tarjeta" de punta a punta en el navegador, incluidos los casos de error.
@@ -122,7 +111,7 @@ class PaymentTerminal(Protocol):
 
 - Probar en sandbox si `POST /v1/payments` acepta `regionalExtras.argentina.numInstallments` e `invoiceNumber`, y dónde vuelven en la respuesta.
 - Si funciona: selector de cuotas en el checkout (solo Tarjeta), se guardan en `ventas.pago_cuotas` y salen en el ticket.
-- Si no: el Mini pregunta las cuotas en su pantalla y se leen de la respuesta; si tampoco vienen, se cargan a mano (campo de la Etapa A).
+- Si no: el Mini pregunta las cuotas en su pantalla y se leen de la respuesta; si tampoco vienen, el POS no muestra cuotas.
 
 ---
 
@@ -131,7 +120,7 @@ class PaymentTerminal(Protocol):
 Depende de cómo responda Fiserv (pregunta 3 del diseño):
 
 - **Si "Pagos QR" corre dentro del mismo cobro** (`entryType = QR_CODE`): no hay trabajo extra más que mostrarlo distinto en la UI y en el ticket.
-- **Si es una app aparte sin API:** el QR sigue con referencia manual (Etapa A). Se documenta en el instructivo del cajero.
+- **Si es una app aparte sin API:** el QR queda fuera de la integración y se sigue cobrando como hoy. Se documenta en el instructivo del cajero.
 - **Si tiene su propia API:** nuevo adaptador detrás del mismo puerto `PaymentTerminal` (por eso el puerto no habla de "tarjeta").
 
 ---
@@ -141,7 +130,7 @@ Depende de cómo responda Fiserv (pregunta 3 del diseño):
 1. Credenciales de producción, URL de producción LATAM y serie del Mini del local en `.env` y en la página de integración.
 2. Integración **deshabilitada** por defecto; se habilita un día con poco movimiento.
 3. Al cierre de cada día del piloto: comparar ventas Tarjeta/QR del POS contra el reporte del Clover (monto, cantidad, autorizaciones). Revisar "Pagos a revisar" = vacío.
-4. **Runbook** (en `docs/`): qué hacer si el Clover cobró y el POS no registró, si el dispositivo no responde, si hay que reconectar OAuth, y cómo volver al modo manual (deshabilitar la integración) sin perder ventas.
+4. **Runbook** (en `docs/`): qué hacer si el Clover cobró y el POS no registró, si el dispositivo no responde, si hay que reconectar OAuth, y cómo volver al flujo actual (deshabilitar la integración) sin perder ventas.
 5. Criterio para dar por terminado: una semana sin diferencias entre el POS y el Clover.
 
 ---
@@ -153,15 +142,15 @@ Depende de cómo responda Fiserv (pregunta 3 del diseño):
 | Cobro aprobado sin venta registrada | Reembolso automático + conciliación + pantalla de revisión + runbook |
 | Doble cobro por reintento | Nunca reintentar con resultado desconocido; `externalPaymentId` + `Idempotency-Key`; un cobro activo a la vez |
 | Precios o stock cambian durante el cobro | `p_total_esperado` (MU011) → reembolso |
-| Refresh token gastado o vencido | Renovación con bloqueo de fila; si falla, deshabilitar y pedir reconexión; modo manual como respaldo |
+| Refresh token gastado o vencido | Renovación con bloqueo de fila; si falla, deshabilitar y pedir reconexión; el flujo actual queda como respaldo |
+| El backend se reinicia en medio de un cobro | Barrido al iniciar y cada 60 s sobre pagos `enviado` vencidos; el índice de cobro único bloquea nuevos cobros hasta resolverlo |
 | Varios workers de uvicorn | Estado en la base, transiciones condicionales y conciliación idempotente |
 | La doc de Clover cambia o se contradice | Puerto `PaymentTerminal` aísla el resto del sistema; suite de sandbox antes de cada cambio |
 
 ## Orden de trabajo sugerido
 
 1. Mandar a Fiserv las preguntas del diseño y crear la cuenta de desarrollador (en paralelo con lo siguiente).
-2. Etapa A (rama propia, se puede usar en el local enseguida).
-3. Etapa B completa con `FakeTerminal`.
-4. Etapa C apenas haya sandbox; luego D y E.
-5. Etapa F según la respuesta de Fiserv.
-6. Etapa G.
+2. Etapa B completa con `FakeTerminal`.
+3. Etapa C apenas haya sandbox; luego D y E.
+4. Etapa F según la respuesta de Fiserv.
+5. Etapa G.
