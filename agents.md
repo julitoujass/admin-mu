@@ -44,6 +44,7 @@ SUPABASE_KEY=<sb_secret_...>
 ENVIRONMENT=development
 CORS_ORIGINS=http://localhost:3000
 LOG_LEVEL=INFO
+PAYMENT_TERMINAL=fake
 ```
 
 | Variable | Requerida | Default | Descripción |
@@ -53,6 +54,12 @@ LOG_LEVEL=INFO
 | `ENVIRONMENT` | No | `development` | Nombre del entorno. |
 | `CORS_ORIGINS` | No | `http://localhost:3000` | Orígenes permitidos, separados por coma. Se expone como lista en `settings.cors_origins_list`. |
 | `LOG_LEVEL` | No | `INFO` | Nivel del logging estándar configurado en `main.py`. |
+| `PAYMENT_TERMINAL` | No | `fake` | Adaptador del terminal de pago (`app/integrations/payment_terminal/factory.py`): `fake` o `clover` (este último lanza `NotImplementedError` hasta la etapa C). |
+| `PAYMENT_FAKE_DELAY_SECONDS` | No | `3` | Segundos que `FakeTerminal` espera antes de aprobar (simula al cliente pagando). |
+| `PAYMENT_RECONCILE_INTERVAL_SECONDS` | No | `60` | Intervalo del barrido de cobros sin resolver (corre también al iniciar). `0` lo desactiva (así corren los tests). |
+| `PAYMENT_STALE_SECONDS` | No | `180` | Un cobro `pendiente`/`enviado`/`aprobado` sin cambios durante este tiempo se considera huérfano (timeout del cobro + margen). |
+| `PAYMENT_RECONCILE_MAX_ATTEMPTS` | No | `10` | Intentos del barrido por cobro; después queda para revisión del admin. |
+| `PAYMENT_RECONCILE_BACKOFF` | No | `2,5,10` | Esperas en segundos (separadas por coma) entre las consultas de la conciliación inmediata. Se expone como `settings.payment_reconcile_backoff`. |
 
 > `JWT_SECRET` fue eliminado: no se usaba, la validación del token la hace Supabase Auth (ver Autenticación).
 > Las variables de entorno tienen prioridad sobre `.env`; los tests y CI usan valores ficticios y no requieren un `.env` real.
@@ -63,15 +70,16 @@ LOG_LEVEL=INFO
 
 ```
 app/
-├── main.py                        # Entry point: logging, CORS, routers, health y exception handlers
+├── main.py                        # Entry point: logging, CORS, routers, health, exception handlers y lifespan (barrido de cobros)
 ├── core/
 │   ├── config.py                  # Settings (pydantic-settings, lee .env)
 │   ├── supabase.py                # Singleton del cliente Supabase
 │   ├── db_utils.py                # fetch_all (paginado interno con .range()) y single_row (resultado de RPC)
 │   ├── timeutils.py               # Zona horaria de negocio (America/Argentina/Buenos_Aires) y límites del día local
-│   └── exceptions.py              # Excepciones custom: CajaError y UsuarioError (con status_code)
+│   └── exceptions.py              # Excepciones custom: CajaError, UsuarioError y PagoError (con status_code)
 ├── api/
 │   ├── auth_deps.py               # get_current_user (token + rol + activo), RoleChecker, TTLCache e invalidate_user
+│   ├── deps.py                    # Composición: get_pago_service() arma PagoService con sus adaptadores
 │   └── v1/
 │       └── endpoints/
 │           ├── productos.py       # Rutas de productos y variantes
@@ -82,7 +90,15 @@ app/
 │           ├── catalogos.py       # Rutas de marcas y categorías
 │           ├── usuarios.py        # Rutas de usuarios y roles (incluye el alta)
 │           ├── configuracion.py   # Configuración del negocio (lectura: todos; edición: admin)
-│           └── auditoria.py       # Visor de la tabla `logs` (solo admin)
+│           ├── auditoria.py       # Visor de la tabla `logs` (solo admin)
+│           └── pagos.py           # Cobros con terminal (`/pagos`) y estado de la integración (`/integraciones/terminal`)
+├── integrations/
+│   └── payment_terminal/
+│       ├── port.py                # Puerto PaymentTerminal + ChargeRequest/ChargeResult/RefundResult + errores del terminal
+│       ├── fake.py                # FakeTerminal: adaptador en memoria, con guion para tests y reglas por centavos para desarrollo
+│       └── factory.py             # get_terminal(): elige el adaptador según PAYMENT_TERMINAL
+├── repositories/
+│   └── supabase_pago_store.py     # Adaptador Supabase del puerto PagoStore (pagos_externos, integracion_terminal, cotizar/registrar)
 ├── schemas/
 │   ├── productos.py               # Pydantic models: ProductCreate/Update/Response, VariantCreate/Update/Response, StockUpdate, StockMovementResponse/ListResponse (kardex)
 │   ├── caja.py                    # Pydantic models: CajaApertura, CajaMovimiento, CajaCierre, SesionCajaResponse, CajaMovimientoResponse, CajaResumenResponse
@@ -91,6 +107,7 @@ app/
 │   ├── reportes.py                # Pydantic models: VentasTotalesReporte, ProductoTopReporte, CajaResumenReporte
 │   ├── configuracion.py           # Pydantic models: ConfiguracionUpdate (parcial) / ConfiguracionResponse
 │   ├── auditoria.py               # Pydantic models: AuditLogItem / AuditLogListResponse
+│   ├── pagos.py                   # Pydantic models: CobroTerminalCreate, CobroIniciadoResponse, PagoResponse / PagoAdminResponse / PagoListResponse, TerminalIntegracionResponse / Update
 │   ├── catalogos.py               # Pydantic models: MarcaCreate/Update/Response, CategoriaCreate/Update/Response
 │   ├── common.py                  # Respuestas genéricas: OkResponse (`{"ok": true}`) y MessageResponse (`{"message": ...}`)
 │   └── usuarios.py                # Pydantic models: RoleResponse, UsuarioResponse, UsuarioRoleUpdate, UsuarioActivoUpdate, MeResponse
@@ -104,7 +121,10 @@ app/
 │   ├── usuario_service.py         # Lectura de perfiles/roles, alta (Auth + perfil), cambio de rol y activación (con reglas de seguridad)
 │   ├── configuracion_service.py   # Lectura y edición parcial de la fila única de `configuracion`
 │   ├── auditoria_service.py       # Listado paginado de `logs` con filtros y nombre del autor
-│   ├── audit.py                   # `audit()`: helper que encola el log de auditoría con eventos normalizados (`AuditEvent`)
+│   ├── pago_ports.py              # Puerto de persistencia PagoStore + ActiveChargeExists / SaleRejected
+│   ├── pago_service.py            # PagoService: orquesta cobro → venta, reembolso y conciliación (solo depende de los puertos)
+│   ├── pago_reconciler.py         # Tarea asyncio del barrido periódico (start_reconciler / stop_reconciler)
+│   ├── audit.py                   # `audit()` encola el log de auditoría (`AuditEvent`); `record_audit()` lo escribe en el acto (tareas en segundo plano)
 │   └── log_service.py             # Auditoría: inserta en tabla `logs` (BackgroundTask)
 scripts/
 ├── export_openapi.py              # Genera `openapi.json` (raíz) desde `app.openapi()`
@@ -115,6 +135,11 @@ tests/
 ├── test_settings.py               # Settings: defaults, parseo de CORS, validaciones
 ├── test_health.py                 # /health y /health/ready
 ├── test_cors.py                   # Preflight CORS (origen permitido / desconocido)
+├── fakes_pagos.py                 # InMemoryPagoStore: implementación en memoria del puerto PagoStore (CAS de estado, un cobro activo, registro idempotente)
+├── test_fake_terminal.py          # FakeTerminal (guion, reglas por centavos, cancelación, ocupado) y factory
+├── test_pago_service.py           # PagoService con FakeTerminal: aprobado, rechazado, cancelado, ocupado, conciliación inmediata, barrido, reembolso, idempotencia
+├── test_pago_store.py             # Adaptador Supabase de PagoStore: consultas, transición condicional y mapeo de errores
+├── test_pagos.py                  # Endpoints /pagos e /integraciones/terminal (roles, dueño, 202, polling), MU011 y lifespan del barrido
 ├── fakes.py                       # FakeSupabase: cliente falso que registra las consultas y devuelve respuestas en cola (`Counted(filas, total)` simula `count="exact"`)
 ├── test_error_handling.py         # Mapeo de APIError (incluye códigos MU00x), 500 genérico, errores de catálogos
 ├── test_auth_deps.py              # get_current_user: 401 sin filtrar detalles, usuarios inactivos, TTLCache e invalidate_user
@@ -175,6 +200,9 @@ Los roles salen de `perfiles.rol_id → roles.nombre` (`admin`, `empleado`). ✅
 | Configuración | `GET /configuracion/` | ✅ | ✅ |
 | Configuración | `PATCH /configuracion/` | 🔒 | ✅ |
 | Auditoría | `GET /auditoria/` | 🔒 | ✅ |
+| Pagos | `POST /pagos/terminal`, `GET /integraciones/terminal` | ✅ | ✅ |
+| Pagos | `GET /pagos/{id}`, `POST /pagos/{id}/cancelar` | ✅ **solo los propios** (404 si es de otro) | ✅ cualquiera |
+| Pagos | `GET /pagos/`, `POST /pagos/{id}/conciliar`, `PATCH /integraciones/terminal` | 🔒 | ✅ |
 
 Un rol distinto de `admin` (o un usuario sin perfil) se trata como `empleado`.
 
@@ -204,7 +232,8 @@ audit(background_tasks, current_user, "CREATE", "productos", entidad_id=..., pay
 
 - Encola `LogService.registrar_log()` como `BackgroundTask`; ese método inserta en la tabla `logs` (evento, entidad, entidad_id, payload, usuario_id, estado). Si el insert falla, solo se loguea el error y no afecta la respuesta.
 - `payload` y `respuesta` se pasan por `jsonable_encoder`: UUID, datetime y Decimal se serializan solos, así que se puede pasar `model_dump()` o la fila de la base tal cual.
-- `evento` es un `AuditEvent` (`Literal`): `CREATE`, `UPDATE`, `DELETE`, `ADJUST_STOCK`, `OPEN_CAJA`, `CLOSE_CAJA`, `CASH_MOVEMENT`, `CREATE_SALE`, `CANCEL_SALE`, `UPDATE_ROL`, `UPDATE_ACTIVO`. El tipo de entidad va en `entidad` (tabla afectada).
+- `evento` es un `AuditEvent` (`Literal`): `CREATE`, `UPDATE`, `DELETE`, `ADJUST_STOCK`, `OPEN_CAJA`, `CLOSE_CAJA`, `CASH_MOVEMENT`, `CREATE_SALE`, `CANCEL_SALE`, `RETURN_SALE`, `UPDATE_ROL`, `UPDATE_ACTIVO`, y los de cobros con terminal: `CHARGE_STARTED`, `CHARGE_APPROVED`, `CHARGE_FAILED`, `CHARGE_UNKNOWN`, `CHARGE_CANCELLED`, `REFUND_DONE`, `TERMINAL_SETTINGS`. El tipo de entidad va en `entidad` (tabla afectada).
+- `record_audit(usuario_id, evento, entidad, ...)` escribe el mismo registro **en el acto**, para código que corre fuera de un request (la tarea del cobro y el barrido), donde no hay `BackgroundTasks`. Nunca lanza.
 - Los eventos antiguos se renombraron: `UPDATE_STOCK` → `ADJUST_STOCK`, `APERTURA_CAJA` → `OPEN_CAJA`, `CIERRE_CAJA` → `CLOSE_CAJA`, `MOVIMIENTO_CAJA` → `CASH_MOVEMENT`, `CREATE_VENTA` → `CREATE_SALE`. El resto (`CREATE`, `UPDATE`, `DELETE`, `UPDATE_ROL`, `UPDATE_ACTIVO`) se mantiene. Las filas históricas de `logs` conservan el nombre viejo.
 
 ---
@@ -224,6 +253,7 @@ Definidos en `main.py`.
 
 | Excepción | HTTP Status | `detail` |
 |---|---|---|
+| `PagoError` | `exc.status_code` (400 / 404 / 409 / 503) | Mensaje de negocio de los cobros con terminal (ver "Pagos con terminal") |
 | `CajaError` | `exc.status_code` (400 por defecto) | Mensaje de negocio: 400 `No hay sesión de caja abierta.`, 409 `Ya existe una sesión de caja abierta.` |
 | `UsuarioError` | `exc.status_code` (400 por defecto) | Mensaje de negocio de gestión de usuarios: 404, 400 o 409 (ver Usuarios) |
 | `postgrest.APIError` código `23505` | 409 | `Conflicto: el registro ya existe` |
@@ -251,6 +281,7 @@ Los lanzan las funciones SQL propias (`registrar_venta`, `anular_venta`, `cerrar
 | `MU008` | 409 | La venta está anulada (no se puede devolver) |
 | `MU009` | 409 | La cantidad a devolver supera lo pendiente de devolver de la variante |
 | `MU010` | 409 | La venta tiene devoluciones (no se puede anular; devolver lo pendiente) |
+| `MU011` | 409 | El total cambió desde que se inició el cobro en el terminal (`registrar_venta_con_pago`; la venta no se registra y el cobro se reembolsa) |
 
 Un código `MU` no listado se trata como cualquier otro error desconocido (500 genérico).
 
@@ -368,7 +399,10 @@ Todas las tablas tienen **RLS habilitado sin políticas**: solo la clave secreta
 | `anulada_at` | timestamptz | nullable, momento de la anulación |
 | `anulada_por` | uuid | nullable, FK → `perfiles.id` (quién anuló) |
 | `motivo_anulacion` | text | nullable |
+| `pago_externo_id` | uuid | nullable, FK → `pagos_externos.id`, único cuando no es null: el cobro en terminal que pagó la venta |
 | `created_at` | timestamptz | |
+
+> `ventas` y `pagos_externos` se referencian mutuamente (`ventas.pago_externo_id` y `pagos_externos.venta_id`): el embed desde PostgREST nombra la FK (`pago:pagos_externos!pago_externo_id(...)`).
 
 > `ventas` tiene **dos** FKs a `perfiles` (`usuario_id` y `anulada_por`): al embeber `perfiles` desde PostgREST hay que indicar la columna (`usuario:perfiles!usuario_id(...)`, `anulada_por:perfiles!anulada_por(...)`).
 
@@ -487,6 +521,44 @@ Devoluciones parciales de una venta (solo las escribe `registrar_devolucion`).
 | `devoluciones` | `id` uuid (PK), `venta_id` FK → `ventas.id`, `usuario_id` FK → `perfiles.id`, `motivo` text, `metodo_pago` (el de la venta), `monto` numeric `>= 0`, `sesion_caja` FK → `sesiones_caja.id` (la caja abierta al devolver, si fue en efectivo), `created_at` |
 | `devolucion_items` | `id` bigint (PK), `devolucion_id` FK (cascade), `variante_id` FK → `producto_variantes.id`, `cantidad` int `> 0`, `monto` numeric `>= 0` |
 
+#### `pagos_externos`
+Un registro por intento de cobro en el terminal (migración `20261112172015_pagos_externos_terminal`). RLS activado y acceso solo para `service_role`.
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `id` | uuid (PK) | `gen_random_uuid()` |
+| `proveedor` | text | not null, default `'fake'` (el adaptador que hizo el cobro) |
+| `external_payment_id` | text | not null, **unique**, `<= 32` caracteres; lo generamos nosotros y sirve para conciliar |
+| `estado` | text | not null: `pendiente`, `enviado`, `aprobado`, `rechazado`, `cancelado`, `indeterminado`, `venta_registrada`, `error_registro`, `reembolsado` |
+| `metodo_pago` | text | not null: `Tarjeta` \| `QR` |
+| `monto` | numeric | not null, `> 0`: total cotizado al iniciar |
+| `carrito` | jsonb | not null: `{items, cliente_id, descuento, recargo, es_admin}` para registrar la venta |
+| `venta_id` | uuid | nullable, FK → `ventas.id` |
+| `sesion_caja` | uuid | nullable, FK → `sesiones_caja.id` |
+| `usuario_id` | uuid | nullable, FK → `perfiles.id` (quien inició el cobro) |
+| `proveedor_payment_id` | text | id del pago en el proveedor (se usa para reembolsar) |
+| `tarjeta_marca`, `tarjeta_ultimos4`, `codigo_autorizacion`, `tipo_ingreso` | text | `tarjeta_ultimos4` debe ser 4 dígitos |
+| `cuotas` | int | nullable, `1..99` |
+| `respuesta` | jsonb | respuesta del proveedor, saneada (sin datos de tarjeta) |
+| `error` | text | motivo del rechazo o del error de registro |
+| `intentos_conciliacion` | int | not null, default 0 |
+| `created_at`, `updated_at` | timestamptz | `updated_at` cambia en cada transición de estado |
+
+- Índice único parcial `pagos_externos_un_cobro_activo` sobre `((true)) where estado in ('pendiente','enviado','indeterminado')`: **un solo cobro en curso**; insertar otro falla con `23505` (→ 409 `Ya hay un cobro en curso`).
+
+#### `integracion_terminal`
+Fila única (`id = 1`, `CHECK (id = 1)`); se insertó a mano (`supabase/data-fixes/20261112_insert_integracion_terminal.sql`). RLS activado y acceso solo para `service_role`.
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `id` | int (PK) | siempre 1 |
+| `proveedor` | text | not null: `fake` \| `clover`. Refleja `PAYMENT_TERMINAL` (se actualiza en cada `PATCH`); el adaptador real lo decide la variable de entorno |
+| `habilitado` | boolean | not null, default `false` |
+| `merchant_id`, `device_id`, `pos_id` | text | nullable |
+| `access_token_cifrado`, `refresh_token_cifrado`, `access_expira_at` | text / timestamptz | OAuth de Clover (etapa C); la API no los expone |
+| `updated_at` | timestamptz | `now()` |
+| `updated_by` | uuid | nullable, FK → `perfiles.id` |
+
 ### Funciones de base de datos
 
 Se invocan con `supabase.rpc(nombre, params).execute()`. Toda la lógica de dinero y stock vive acá para que sea atómica (una transacción, con bloqueo de filas). Los errores de negocio se lanzan con códigos `MU00x` (ver "Health y manejo de errores").
@@ -495,6 +567,8 @@ Se invocan con `supabase.rpc(nombre, params).execute()`. Toda la lógica de dine
 |---|---|---|---|
 | `registrar_venta` | `p_usuario_id` uuid, `p_metodo_pago` text, `p_items` jsonb `[{variante_id, cantidad}]`, `p_cliente_id?` uuid, `p_idempotency_key?` text, `p_descuento_tipo?` text (`null` \| `'porcentaje'` \| `'monto'`), `p_descuento_valor` numeric = 0, `p_recargo_tipo?` text, `p_recargo_valor` numeric = 0, `p_es_admin` boolean = false | fila de `ventas` | Venta atómica: bloquea filas, toma precios y costos de la base, unifica variantes repetidas, descuenta stock, escribe `venta_detalle` y `movimientos_stock` (`venta`), y aplica descuento y recargo. La misma clave de idempotencia devuelve la venta original. `MU007` si un no-admin descuenta más de `configuracion.descuento_max_empleado` % |
 | `registrar_devolucion` | `p_venta_id` uuid, `p_usuario_id` uuid, `p_motivo` text, `p_items` jsonb `[{variante_id, cantidad}]` | fila de `devoluciones` | Devolución parcial atómica: valida que la variante esté en la venta y que no se devuelva más de lo vendido menos lo ya devuelto, repone stock (`movimientos_stock` tipo `devolucion`) y calcula el reintegro por ítem = `precio_unitario × cantidad × total/subtotal` (descuento y recargo proporcionales). Si la venta fue en efectivo, registra un `egreso` en la caja abierta (`MU001` si no hay). `MU003` / `MU004` / `MU008` / `MU009` |
+| `cotizar_venta` | `p_items` jsonb, `p_descuento_tipo?`, `p_descuento_valor` = 0, `p_recargo_tipo?`, `p_recargo_valor` = 0, `p_es_admin` boolean = false | jsonb | `{subtotal, descuento, recargo, total}` con las mismas reglas que `registrar_venta` (precios de la base, tope del empleado, stock, caja abierta) **sin escribir nada**. `MU001` / `MU002` / `MU003` / `MU004` / `MU007` |
+| `registrar_venta_con_pago` | `p_pago_externo_id` uuid, `p_usuario_id` uuid, `p_metodo_pago` text, `p_items` jsonb, `p_total_esperado` numeric, `p_cliente_id?` uuid, `p_descuento_tipo?`, `p_descuento_valor` = 0, `p_recargo_tipo?`, `p_recargo_valor` = 0, `p_es_admin` boolean = false | fila de `ventas` | Llama a `registrar_venta` con la clave de idempotencia `pago:<id>` (un cobro = una venta) y guarda `ventas.pago_externo_id`. Si el total calculado difiere de `p_total_esperado` falla con `MU011` y revierte toda la venta |
 | `variantes_stock_bajo` | — | setof | `(variante_id, producto_id, producto_nombre, sku, talle, color, stock_actual, stock_minimo)` de las variantes con `stock_actual <= stock_minimo`, sin costos |
 | `anular_venta` | `p_venta_id` uuid, `p_usuario_id` uuid, `p_motivo` text | fila de `ventas` | Anulación atómica: devuelve el stock (`movimientos_stock` tipo `anulacion`), marca la venta como `anulada` y, si corresponde, registra el egreso de la devolución en efectivo. `MU004` / `MU006` / `MU001` / `MU003`; `MU010` si la venta ya tiene devoluciones |
 | `cerrar_caja` | `p_sesion_id` uuid, `p_monto_real_efectivo` numeric, `p_observaciones` text | fila de `sesiones_caja` | Bloquea la sesión, calcula el efectivo esperado (apertura + ventas en efectivo + ingresos − egresos) y la cierra |
@@ -720,7 +794,9 @@ Sin el filtro `estado` el listado incluye completadas y anuladas. Nunca expone `
             costo_unitario }],   # costo_unitario: solo admin; cantidad_devuelta: unidades de esa variante ya devueltas
   devoluciones: [{ id, created_at, motivo, monto, metodo_pago, usuario: { id, nombre } | null,
                    items: [{ variante_id, cantidad, monto }] }],   # de la más antigua a la más nueva
-  total_costo: float             # solo admin
+  total_costo: float,            # solo admin
+  pago: { metodo_pago, tarjeta_marca, tarjeta_ultimos4, codigo_autorizacion, cuotas, proveedor } | null
+                                 # cobro en el terminal que pagó la venta (`ventas.pago_externo_id`); null si no hubo
 }
 ```
 
@@ -951,6 +1027,104 @@ Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY
 
 ---
 
+### 💳 Pagos con terminal — `/api/v1/pagos` e `/api/v1/integraciones/terminal`
+
+Cobros con tarjeta / QR en un terminal de pago (etapa B del [plan](docs/design/plan-implementacion-clover.md): núcleo con terminal simulado; Clover se enchufa en la etapa C). El efectivo no cambia y `POST /ventas/` sigue funcionando igual: mientras la integración esté deshabilitada, el POS cobra Tarjeta/QR como siempre.
+
+| Método | Path | Auth | Descripción |
+|---|---|---|---|
+| POST | `/pagos/terminal` | ✅ | Inicia un cobro. Responde **202** `{ pago_id, total, estado: "pendiente" }`; el cobro corre en segundo plano |
+| GET | `/pagos/{id}` | ✅ quien lo inició o admin | Estado del cobro (para el polling del POS). Otro usuario recibe 404 |
+| POST | `/pagos/{id}/cancelar` | ✅ quien lo inició o admin | Cancela un cobro en curso; devuelve el pago |
+| GET | `/pagos/?estado=&limit=&offset=` | 🔒 | Listado para revisión (`indeterminado`, `error_registro`, ...) → `{ items, total }` |
+| POST | `/pagos/{id}/conciliar` | 🔒 | Fuerza la conciliación de un cobro ahora |
+| GET | `/integraciones/terminal` | ✅ | `{ proveedor, habilitado, conectado }` para que el POS elija el flujo |
+| PATCH | `/integraciones/terminal` | 🔒 | Habilita / deshabilita y guarda los datos del dispositivo |
+
+```python
+# CobroTerminalCreate (POST /pagos/terminal): mismo body que POST /ventas/, pero metodo_pago solo "Tarjeta" | "QR"
+{ items: [{ variante_id: UUID, cantidad: int }], metodo_pago: "Tarjeta" | "QR", cliente_id?: UUID,
+  descuento?: { tipo, valor }, recargo?: { tipo, valor } }
+
+# PagoResponse (GET /pagos/{id}, POST /pagos/{id}/cancelar)
+{ id, estado, metodo_pago, monto: float, venta_id: UUID | null, tarjeta_marca?, tarjeta_ultimos4?, codigo_autorizacion?,
+  cuotas?: int, error?: str, created_at, updated_at }
+
+# PagoAdminResponse (items de GET /pagos/ y respuesta de POST /pagos/{id}/conciliar): PagoResponse +
+{ proveedor, external_payment_id, usuario_id, intentos_conciliacion }
+
+# TerminalIntegracionResponse (GET y PATCH /integraciones/terminal)
+{ proveedor: "fake" | "clover", habilitado: bool, conectado: bool,
+  device_id?, pos_id?, updated_at? }   # estos tres solo se completan para admin
+
+# TerminalIntegracionUpdate (PATCH): todos opcionales, al menos uno; texto vacío = null
+{ habilitado?: bool, device_id?: str (<= 64), pos_id?: str (<= 64) }
+```
+
+**Errores**
+
+| Caso | Status | `detail` |
+|---|---|---|
+| Integración deshabilitada | 409 | `La integración con el terminal está deshabilitada` |
+| Ya hay un cobro `pendiente` / `enviado` / `indeterminado` | 409 | `Ya hay un cobro en curso` |
+| Cotización rechazada por la base (`cotizar_venta`) | 400 / 404 / 409 / 403 | mensaje de `MU001` / `MU003` / `MU004` / `MU002` / `MU007` |
+| Total a cobrar `<= 0` | 400 | `El total a cobrar debe ser mayor a 0` |
+| `metodo_pago: "Efectivo"` u otro body inválido | 422 | validación |
+| Pago inexistente o de otro usuario (no admin) | 404 | `Pago no encontrado` |
+| El terminal no responde al cancelar | 503 | `No se pudo cancelar el cobro en el terminal` |
+
+**Estados de `pagos_externos.estado`**
+
+- `pendiente`: creado y cotizado; todavía no se envió al terminal.
+- `enviado`: el terminal está cobrando (hasta ~135 s).
+- `aprobado`: el terminal aprobó; falta registrar la venta (estado de paso).
+- `venta_registrada`: **final**. La venta existe (`venta_id`) y quedó vinculada (`ventas.pago_externo_id`).
+- `rechazado`: **final**. Rechazado por el terminal, terminal ocupado (`Terminal ocupado`), solicitud inválida, o el terminal no registra el cobro. No se cobró.
+- `cancelado`: **final**. Cancelado en el dispositivo o desde el POS.
+- `indeterminado`: no se sabe si se cobró (timeout, error de red). Se concilia; **nunca se vuelve a cobrar**.
+- `error_registro`: se cobró pero la base rechazó la venta (`MU011` total distinto, `MU002` sin stock, `MU001` caja cerrada, ...). Se reembolsa en el acto; si el reembolso no se confirma queda en este estado para revisión del admin (`error` termina en `reembolso no confirmado: revisar en el terminal`).
+- `reembolsado`: **final**. Se cobró, no se pudo registrar la venta y se devolvió el total (`error` conserva el motivo).
+
+Transiciones: `pendiente → enviado → aprobado → venta_registrada`; `aprobado → error_registro → reembolsado`; `enviado → rechazado | cancelado | indeterminado`; `indeterminado → aprobado | rechazado | cancelado`; `pendiente → cancelado` (cancelado antes de enviarse) y `pendiente | enviado | indeterminado → rechazado` (barrido). Los estados `pendiente`, `enviado` e `indeterminado` ocupan el único "cobro en curso" (índice único parcial).
+
+**Arquitectura (hexagonal)**
+
+- **Puerto del terminal** — `app/integrations/payment_terminal/port.py`: `PaymentTerminal` (`ping`, `status`, `charge`, `find_by_external_id`, `cancel_current`, `refund`, `show_welcome`), `ChargeRequest`, `ChargeResult` (`APPROVED | DECLINED | CANCELLED | UNKNOWN`), `RefundResult`, y los errores `TerminalBusy`, `TerminalUnavailable`, `TerminalBadRequest`. Montos en centavos. Adaptadores: `fake.py` (`FakeTerminal`); `factory.py::get_terminal()` elige según `PAYMENT_TERMINAL`.
+- **Puerto de persistencia** — `app/services/pago_ports.py`: `PagoStore` (+ `ActiveChargeExists`, `SaleRejected`). Adaptador: `app/repositories/supabase_pago_store.py`.
+- **Aplicación** — `app/services/pago_service.py::PagoService` (instanciable, sin `@staticmethod`): solo conoce los dos puertos. No importa `supabase` ni nada de un proveedor.
+- **Composición** — `app/api/deps.py::get_pago_service()` arma el servicio una vez por proceso; los endpoints lo reciben con `Depends` (los tests lo reemplazan con `app.dependency_overrides`).
+
+**Cómo corre**
+
+1. `POST /pagos/terminal` (dentro del request): verifica que la integración esté habilitada → `cotizar_venta` → inserta el pago `pendiente` con el carrito (`items`, `cliente_id`, `descuento`, `recargo`, `es_admin`), `monto` = total, `external_payment_id` (uuid4 hex, 32 caracteres), `sesion_caja` y `usuario_id` → agenda `ejecutar_cobro` con `BackgroundTasks` (corre en el threadpool después de enviar la respuesta) → 202.
+2. `ejecutar_cobro(pago_id)` (segundo plano): `pendiente → enviado` y `terminal.charge(...)`. Aprobado → guarda marca, últimos 4, autorización, cuotas y la respuesta saneada → `registrar_venta_con_pago` → `venta_registrada`. Rechazado / cancelado → estado final. Resultado desconocido (o terminal inalcanzable) → `indeterminado` y **conciliación inmediata**: hasta 3 consultas `find_by_external_id` con esperas de `PAYMENT_RECONCILE_BACKOFF`. Al final siempre `show_welcome()` (sus errores se ignoran).
+3. **Barrido** (`conciliar_pendientes`): lo lanza el `lifespan` de `main.py` al iniciar y cada `PAYMENT_RECONCILE_INTERVAL_SECONDS` (`app/services/pago_reconciler.py`: tarea asyncio que ejecuta la función síncrona en un hilo). Toma los `indeterminado` y los `pendiente` / `enviado` / `aprobado` sin cambios hace más de `PAYMENT_STALE_SECONDS`, suma `intentos_conciliacion` y los resuelve con `find_by_external_id` (los `aprobado` reintentan el registro de la venta). Tras `PAYMENT_RECONCILE_MAX_ATTEMPTS` deja de tomarlos y loguea un warning: quedan para el admin (`GET /pagos/?estado=indeterminado`, `POST /pagos/{id}/conciliar`).
+
+**Reglas que no se rompen**
+
+- **Nunca se cobra dos veces el mismo pago:** solo el proceso que gana `pendiente → enviado` llama a `charge`; un resultado desconocido se resuelve consultando, no cobrando de nuevo.
+- **Transiciones condicionales:** todo cambio de estado es `update ... where id = ? and estado = <esperado>` (`PagoStore.transition`); si no afecta filas, otro proceso ya lo movió y el actual se detiene. Así conviven la tarea del cobro, el barrido, el admin y varios workers.
+- **Una sola venta por cobro:** `registrar_venta_con_pago` usa el id del pago como clave de idempotencia.
+- **Reembolso solo ante un rechazo definitivo de la base** (`SaleRejected`). Si el registro falla por conexión (resultado desconocido) se reintenta una vez y, si sigue fallando, el pago queda `aprobado` para el barrido: reembolsar ahí podría dejar una venta sin cobro. El reembolso no se reintenta a ciegas.
+- **Si el terminal contesta que no conoce el cobro** (`find_by_external_id` → `None`): un `pendiente` / `enviado` / `indeterminado` solo pasa a `rechazado` cuando su último cambio supera `PAYMENT_STALE_SECONDS`; antes de eso se sigue esperando.
+- **Datos de tarjeta:** solo se guardan marca y últimos 4. `pagos_externos.respuesta` se sanea (`sanitize_provider_response`: descarta claves con pinta de dato sensible y enmascara números de 12 a 19 dígitos). La auditoría solo lleva marca y últimos 4 (ni siquiera el código de autorización).
+- **Cancelar:** un pago `pendiente` pasa directo a `cancelado` (todavía no llegó al terminal); uno `enviado` llama a `terminal.cancel_current()` y el estado final lo decide el cobro. En cualquier otro estado solo devuelve el pago.
+
+**Auditoría:** `CHARGE_STARTED`, `CHARGE_APPROVED`, `CHARGE_FAILED` (rechazo o error de registro), `CHARGE_UNKNOWN`, `CHARGE_CANCELLED`, `REFUND_DONE` (entidad `pagos_externos`), `CREATE_SALE` (entidad `ventas`, al registrar la venta del cobro) y `TERMINAL_SETTINGS` (entidad `integracion_terminal`). Como la tarea corre fuera de un request, se escriben con `record_audit()` (misma tabla `logs`, escritura directa).
+
+**Probarlo con el terminal simulado** (`PAYMENT_TERMINAL=fake`, el default)
+
+1. Con un token de admin: `PATCH /api/v1/integraciones/terminal` con `{ "habilitado": true }`.
+2. Con la caja abierta: `POST /api/v1/pagos/terminal` y consultar `GET /api/v1/pagos/{pago_id}` cada segundo.
+3. El resultado depende de los centavos del total (usar un recargo por monto para forzarlos):
+   - cualquier total → **aprobado** a los ~3 s (VISA terminada en 4242) y venta registrada;
+   - total terminado en **`.13`** → **rechazado**;
+   - total terminado en **`.99`** → **indeterminado**: las 3 primeras consultas siguen sin respuesta, así que queda para el barrido (o para `POST /pagos/{id}/conciliar`), que lo aprueba y registra la venta;
+   - `POST /pagos/{id}/cancelar` durante la espera → **cancelado**.
+4. El estado del terminal simulado vive en memoria del proceso: usar un solo worker de uvicorn en desarrollo.
+
+---
+
 ### 🔎 Auditoría — `/api/v1/auditoria`
 
 | Método | Path | Auth | Descripción |
@@ -999,6 +1173,8 @@ Query params (todos opcionales): `desde`, `hasta` (fechas locales de Argentina, 
 | 22 | varios endpoints | ✅ **Resuelto** | Los ids UUID de la URL eran `str`: un valor mal formado llegaba a PostgREST (error `22P02`). Ahora se validan como `uuid.UUID` (422). |
 | 23 | `usuario_service.py` | ℹ️ Menor | La verificación del último administrador activo no es atómica (lectura + escritura). |
 | 24 | base de datos | ℹ️ Pendiente | Las funciones `crear_venta`, `ajustar_stock` y `finalizar_cierre_caja` quedaron obsoletas y siguen en la base hasta que se haga el `DROP`. |
+| 25 | `pago_service.py` | ℹ️ Pendiente (etapa D) | Anular o devolver una venta cobrada con el terminal todavía **no reembolsa** en el dispositivo: `anular_venta` / `registrar_devolucion` solo actualizan la base. |
+| 26 | `integrations/payment_terminal` | ℹ️ Pendiente (etapa C) | Solo existe el adaptador `fake`; `PAYMENT_TERMINAL=clover` lanza `NotImplementedError`. El estado de `FakeTerminal` es por proceso (un solo worker en desarrollo). |
 
 ---
 
@@ -1032,7 +1208,7 @@ CI (`.github/workflows/ci.yml`) ejecuta `ruff check .` y `pytest -q` en cada pus
 ## Convenciones del Código
 
 1. **Sin ORM:** Todas las queries usan `supabase-py` directamente contra las tablas/RPCs.
-2. **Servicios estáticos:** Los servicios son clases con `@staticmethod` (no hay instancias).
+2. **Servicios estáticos:** Los servicios son clases con `@staticmethod` (no hay instancias). Excepción: `PagoService` recibe sus puertos por constructor (terminal y persistencia) y se arma en `app/api/deps.py`; no importa `supabase`.
 3. **`model_dump(exclude_none=True)`** en Creates para no enviar campos nulos a Supabase.
 4. **`model_dump(exclude_unset=True)`** en Updates para solo enviar los campos que el cliente mandó.
 5. **`mode='json'`** en la creación de variantes para serializar UUID4 como string.
@@ -1045,7 +1221,7 @@ CI (`.github/workflows/ci.yml`) ejecuta `ruff check .` y `pytest -q` en cada pus
 12. **TDD:** todo comportamiento nuevo lleva su test en `tests/` (los servicios o el cliente `supabase` se reemplazan con mocks o con `tests/fakes.py::FakeSupabase`; `get_current_user` con `app.dependency_overrides`).
 13. **Autorización:** toda ruta nueva se agrega a la "Matriz de roles" y a `tests/test_authz.py`. Lo que solo puede hacer un admin usa `Depends(RoleChecker(["admin"]))`; nunca se confía en que el frontend oculte la opción.
 14. **Ids UUID en la URL:** tiparlos como `uuid.UUID` y pasar `str(id)` al servicio.
-15. **Auditoría:** toda escritura llama a `audit()` con un `AuditEvent`; no se usa `background_tasks.add_task(LogService...)` directo. Un evento nuevo se agrega al `Literal` y a esta documentación.
+15. **Auditoría:** toda escritura llama a `audit()` con un `AuditEvent` (o a `record_audit()` si corre fuera de un request); no se usa `background_tasks.add_task(LogService...)` directo. Un evento nuevo se agrega al `Literal` y a esta documentación.
 16. **Respuestas tipadas:** todo endpoint declara `response_model` (también los DELETE: `OkResponse` / `MessageResponse` de `schemas/common.py`); no se devuelven dicts sueltos ni `JSONResponse` a mano.
 17. **Mensajes 404 en español** y consistentes: `Producto no encontrado`, `Variante no encontrada`, `Cliente no encontrado`, `Marca no encontrada`, `Categoría no encontrada`, `Usuario no encontrado`.
 18. **OpenAPI versionado:** al cambiar rutas o modelos, regenerar `openapi.json` con `python scripts/export_openapi.py`; `tests/test_openapi.py` falla si quedó desactualizado (así lo detecta CI).

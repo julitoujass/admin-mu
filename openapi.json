@@ -837,6 +837,101 @@
         "title": "ClienteUpdate",
         "type": "object"
       },
+      "CobroIniciadoResponse": {
+        "properties": {
+          "estado": {
+            "enum": [
+              "pendiente",
+              "enviado",
+              "aprobado",
+              "rechazado",
+              "cancelado",
+              "indeterminado",
+              "venta_registrada",
+              "error_registro",
+              "reembolsado"
+            ],
+            "title": "Estado",
+            "type": "string"
+          },
+          "pago_id": {
+            "format": "uuid",
+            "title": "Pago Id",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "number"
+          }
+        },
+        "required": [
+          "pago_id",
+          "total",
+          "estado"
+        ],
+        "title": "CobroIniciadoResponse",
+        "type": "object"
+      },
+      "CobroTerminalCreate": {
+        "description": "Same cart as `POST /ventas/`; only the methods a terminal can charge.",
+        "properties": {
+          "cliente_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cliente Id"
+          },
+          "descuento": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AjusteVenta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/VentaItem"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "metodo_pago": {
+            "enum": [
+              "Tarjeta",
+              "QR"
+            ],
+            "title": "Metodo Pago",
+            "type": "string"
+          },
+          "recargo": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AjusteVenta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "metodo_pago"
+        ],
+        "title": "CobroTerminalCreate",
+        "type": "object"
+      },
       "ConfiguracionResponse": {
         "properties": {
           "cuit": {
@@ -1473,6 +1568,365 @@
         "title": "OkResponse",
         "type": "object"
       },
+      "PagoAdminResponse": {
+        "description": "Charge as shown in the admin review list.",
+        "properties": {
+          "codigo_autorizacion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Codigo Autorizacion"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "cuotas": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cuotas"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "enviado",
+              "aprobado",
+              "rechazado",
+              "cancelado",
+              "indeterminado",
+              "venta_registrada",
+              "error_registro",
+              "reembolsado"
+            ],
+            "title": "Estado",
+            "type": "string"
+          },
+          "external_payment_id": {
+            "title": "External Payment Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "intentos_conciliacion": {
+            "default": 0,
+            "title": "Intentos Conciliacion",
+            "type": "integer"
+          },
+          "metodo_pago": {
+            "enum": [
+              "Tarjeta",
+              "QR"
+            ],
+            "title": "Metodo Pago",
+            "type": "string"
+          },
+          "monto": {
+            "title": "Monto",
+            "type": "number"
+          },
+          "proveedor": {
+            "title": "Proveedor",
+            "type": "string"
+          },
+          "tarjeta_marca": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tarjeta Marca"
+          },
+          "tarjeta_ultimos4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tarjeta Ultimos4"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "usuario_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usuario Id"
+          },
+          "venta_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Venta Id"
+          }
+        },
+        "required": [
+          "id",
+          "estado",
+          "metodo_pago",
+          "monto",
+          "created_at",
+          "updated_at",
+          "proveedor",
+          "external_payment_id"
+        ],
+        "title": "PagoAdminResponse",
+        "type": "object"
+      },
+      "PagoListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PagoAdminResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "PagoListResponse",
+        "type": "object"
+      },
+      "PagoResponse": {
+        "description": "What the POS polls while the customer pays.",
+        "properties": {
+          "codigo_autorizacion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Codigo Autorizacion"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "cuotas": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cuotas"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "enviado",
+              "aprobado",
+              "rechazado",
+              "cancelado",
+              "indeterminado",
+              "venta_registrada",
+              "error_registro",
+              "reembolsado"
+            ],
+            "title": "Estado",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "metodo_pago": {
+            "enum": [
+              "Tarjeta",
+              "QR"
+            ],
+            "title": "Metodo Pago",
+            "type": "string"
+          },
+          "monto": {
+            "title": "Monto",
+            "type": "number"
+          },
+          "tarjeta_marca": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tarjeta Marca"
+          },
+          "tarjeta_ultimos4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tarjeta Ultimos4"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "venta_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Venta Id"
+          }
+        },
+        "required": [
+          "id",
+          "estado",
+          "metodo_pago",
+          "monto",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PagoResponse",
+        "type": "object"
+      },
+      "PagoVentaRef": {
+        "description": "Terminal charge (card / QR) that paid a sale. Never more card data than brand and last 4.",
+        "properties": {
+          "codigo_autorizacion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Codigo Autorizacion"
+          },
+          "cuotas": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cuotas"
+          },
+          "metodo_pago": {
+            "title": "Metodo Pago",
+            "type": "string"
+          },
+          "proveedor": {
+            "title": "Proveedor",
+            "type": "string"
+          },
+          "tarjeta_marca": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tarjeta Marca"
+          },
+          "tarjeta_ultimos4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tarjeta Ultimos4"
+          }
+        },
+        "required": [
+          "metodo_pago",
+          "proveedor"
+        ],
+        "title": "PagoVentaRef",
+        "type": "object"
+      },
       "PersonaRef": {
         "description": "Embedded `{id, nombre}` of a customer or a user.",
         "properties": {
@@ -2031,6 +2485,105 @@
           "motivo"
         ],
         "title": "StockUpdate",
+        "type": "object"
+      },
+      "TerminalIntegracionResponse": {
+        "properties": {
+          "conectado": {
+            "title": "Conectado",
+            "type": "boolean"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "habilitado": {
+            "title": "Habilitado",
+            "type": "boolean"
+          },
+          "pos_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pos Id"
+          },
+          "proveedor": {
+            "title": "Proveedor",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "proveedor",
+          "habilitado",
+          "conectado"
+        ],
+        "title": "TerminalIntegracionResponse",
+        "type": "object"
+      },
+      "TerminalIntegracionUpdate": {
+        "description": "Partial update: only the fields that are sent change. Blank texts clear the value.",
+        "properties": {
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "habilitado": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Habilitado"
+          },
+          "pos_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pos Id"
+          }
+        },
+        "title": "TerminalIntegracionUpdate",
         "type": "object"
       },
       "UsuarioActivoUpdate": {
@@ -2658,6 +3211,16 @@
             ],
             "title": "Motivo Anulacion"
           },
+          "pago": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PagoVentaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "recargo_aplicado": {
             "title": "Recargo Aplicado",
             "type": "number"
@@ -2960,6 +3523,16 @@
               }
             ],
             "title": "Motivo Anulacion"
+          },
+          "pago": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PagoVentaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "recargo_aplicado": {
             "title": "Recargo Aplicado",
@@ -4385,6 +4958,355 @@
         "summary": "Update Configuracion",
         "tags": [
           "Configuración"
+        ]
+      }
+    },
+    "/api/v1/integraciones/terminal": {
+      "get": {
+        "operationId": "get_integracion_terminal_api_v1_integraciones_terminal_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerminalIntegracionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Integracion Terminal",
+        "tags": [
+          "Integraciones"
+        ]
+      },
+      "patch": {
+        "operationId": "update_integracion_terminal_api_v1_integraciones_terminal_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminalIntegracionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerminalIntegracionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Integracion Terminal",
+        "tags": [
+          "Integraciones"
+        ]
+      }
+    },
+    "/api/v1/pagos/": {
+      "get": {
+        "operationId": "listar_pagos_api_v1_pagos__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "estado",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pendiente",
+                    "enviado",
+                    "aprobado",
+                    "rechazado",
+                    "cancelado",
+                    "indeterminado",
+                    "venta_registrada",
+                    "error_registro",
+                    "reembolsado"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Estado"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagoListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Listar Pagos",
+        "tags": [
+          "Pagos"
+        ]
+      }
+    },
+    "/api/v1/pagos/terminal": {
+      "post": {
+        "description": "Start a card / QR charge. The charge runs after the response; poll `GET /pagos/{id}`.",
+        "operationId": "iniciar_cobro_api_v1_pagos_terminal_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CobroTerminalCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CobroIniciadoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Iniciar Cobro",
+        "tags": [
+          "Pagos"
+        ]
+      }
+    },
+    "/api/v1/pagos/{id}": {
+      "get": {
+        "operationId": "get_pago_api_v1_pagos__id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Pago",
+        "tags": [
+          "Pagos"
+        ]
+      }
+    },
+    "/api/v1/pagos/{id}/cancelar": {
+      "post": {
+        "operationId": "cancelar_pago_api_v1_pagos__id__cancelar_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancelar Pago",
+        "tags": [
+          "Pagos"
+        ]
+      }
+    },
+    "/api/v1/pagos/{id}/conciliar": {
+      "post": {
+        "operationId": "conciliar_pago_api_v1_pagos__id__conciliar_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagoAdminResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Conciliar Pago",
+        "tags": [
+          "Pagos"
         ]
       }
     },

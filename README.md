@@ -34,6 +34,12 @@ Se leen del entorno o de un archivo `.env` en la raíz del proyecto (no se versi
 | `ENVIRONMENT` | No | `development` | Nombre del entorno (`development`, `production`, etc.). |
 | `CORS_ORIGINS` | No | `http://localhost:3000` | Orígenes permitidos por CORS, separados por coma. |
 | `LOG_LEVEL` | No | `INFO` | Nivel de logging (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| `PAYMENT_TERMINAL` | No | `fake` | Adaptador del terminal de pago: `fake` (simulado) o `clover` (todavía no implementado). |
+| `PAYMENT_FAKE_DELAY_SECONDS` | No | `3` | Segundos que el terminal simulado espera antes de aprobar. |
+| `PAYMENT_RECONCILE_INTERVAL_SECONDS` | No | `60` | Cada cuánto corre el barrido de cobros sin resolver (también al iniciar). `0` lo desactiva. |
+| `PAYMENT_STALE_SECONDS` | No | `180` | Antigüedad a partir de la cual un cobro `pendiente`/`enviado` se considera huérfano. |
+| `PAYMENT_RECONCILE_MAX_ATTEMPTS` | No | `10` | Intentos del barrido por cobro antes de dejarlo para revisión del admin. |
+| `PAYMENT_RECONCILE_BACKOFF` | No | `2,5,10` | Esperas (segundos) entre las consultas de la conciliación inmediata. |
 
 ## Ejecución
 
