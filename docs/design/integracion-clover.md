@@ -1,0 +1,218 @@
+# Diseño técnico: integración del Clover Mini (cobros con tarjeta y QR)
+
+> Estado: **borrador para validar con Fiserv**. Fecha: 2026-11-12.
+> Alcance: `admin-mu` (backend, base de datos) y `pos-mu` (UI). El efectivo no cambia.
+
+## 1. Objetivo
+
+Hoy el cajero cobra con tarjeta o QR en el Clover Mini y después carga la venta en el POS a mano, sin ningún vínculo entre ambos. El objetivo es que el POS **inicie el cobro en el Clover**, espere el resultado y **registre la venta solo si el pago fue aprobado**, guardando la referencia del pago para conciliar, anular y devolver.
+
+No es objetivo: facturación electrónica (AFIP), pagos divididos, propinas.
+
+## 2. Decisión: Cloud Pay Display
+
+Clover ofrece dos semi-integraciones para Argentina ([guía LATAM](https://docs.clover.com/dev/docs/quick-reference-guides-latam-developers)):
+
+| Opción | Cómo se conecta | Encaje |
+|---|---|---|
+| **Cloud Pay Display** (elegida) | Backend → API cloud de Clover (OAuth v2) → dispositivo | Las credenciales quedan en FastAPI, no depende de la red local del POS |
+| REST Pay Display | Navegador/servidor → `https://<ip-del-mini>:12346/connect` por la red local, confiando en el certificado de Clover | Frágil: misma red, IP del dispositivo y certificado en cada PC |
+
+Regla: **el navegador nunca habla con Clover**. Todo pasa por `pos-mu → /api/python → admin-mu → Clover`.
+
+## 3. Arquitectura
+
+```
+POS (Next.js) ──► admin-mu (FastAPI) ──► Clover Cloud /connect ──► Clover Mini
+     ▲  polling          │                      (OAuth Bearer)          │
+     └── estado ─────────┤                                              │
+                         ├── registrar_venta / anular / devolver (Postgres, atómico)
+                         └── pagos_externos (estado del cobro, conciliación)
+```
+
+Componentes nuevos en `admin-mu`:
+
+- `app/integrations/clover/client.py`: cliente HTTP (`httpx`) con los headers obligatorios, timeouts y mapeo de errores. Sin lógica de negocio.
+- `app/integrations/clover/oauth.py`: intercambio y renovación de tokens.
+- `app/services/pago_service.py`: orquesta cobro → venta, anulaciones, devoluciones y conciliación.
+- `app/api/v1/endpoints/pagos.py`: endpoints para el POS.
+- Un proceso de **conciliación** (tarea periódica) para pagos en estado indeterminado.
+
+## 4. API de Clover que usamos
+
+Fuente: [referencia de la API](https://docs.clover.com/dev/reference/api-reference-overview) y [flujos REST Pay](https://docs.clover.com/dev/docs/rest-pay-payment-flows).
+
+**Base:** sandbox `https://apisandbox.dev.clover.com/connect`. ⚠️ La URL cloud de producción para LATAM **no está documentada** (la API de plataforma LATAM es `https://api.la.clover.com`); confirmar con Fiserv.
+
+**Headers en cada llamada:** `Authorization: Bearer <access_token>`, `X-Clover-Device-Id: <serie del dispositivo>`, `X-POS-Id: <id fijo del POS>`, `User-Agent: MundoUniformePOS/<versión>`, `Content-Type: application/json`. En `POST` de cobro, reembolso y anulación: `Idempotency-Key`. Opcional `X-Clover-Timeout` (0–300 s).
+
+| Uso | Método y ruta | Notas |
+|---|---|---|
+| Ping | `GET /v1/device/ping` | `{connected}` |
+| Estado del dispositivo | `GET /v1/device/status` | `IDLE`, `BUSY`, `WAITING_FOR_CUSTOMER`, `UNKNOWN` |
+| Cobro (venta) | `POST /v1/payments` | Sincrónico hasta que el cliente termina (timeout por defecto 135 s). `amount` en centavos, `externalPaymentId` (≤ 32), `final: true` |
+| Consultar por id externo | `GET /v1/payments/external/{externalPaymentId}` | Para resolver resultados desconocidos |
+| Cancelar lo que está en pantalla | `POST /v1/device/cancel` | El 200 solo confirma que se recibió |
+| Reembolso | `POST /v1/payments/{paymentId}/refunds` | `{amount}` o `{fullRefund: true}` |
+| Anulación (void) | `POST /v1/payments/{paymentId}/void` | `{voidReason}` |
+| Pantalla de bienvenida | `/v1/device/welcome` | **Mandarla después de cada transacción** (si no, el Mini queda en "cargando") |
+
+**Respuesta de cobro** (campos que guardamos): `payment.id`, `result` (`SUCCESS`, `FAIL`, ...), `amount`, `cardTransaction.cardType`, `last4`, `authCode`, `entryType`, `transactionNo`, `issues` (duplicado, offline, etc.). Nunca se guardan datos completos de tarjeta: el POS queda fuera del alcance de PCI.
+
+**Códigos HTTP y qué hacer:**
+
+| Código | Significado | Acción |
+|---|---|---|
+| 200 | Resultado final | Procesar `result` |
+| 209 | Cancelado en el dispositivo | Pago cancelado |
+| 400 | Request inválida | No reintentar; bug nuestro |
+| 503 | Dispositivo ocupado | Reintentar más tarde (mostrar "Clover ocupado") |
+| 504 / timeout / corte de red | No se sabe si cobró | Estado `indeterminado` → conciliar |
+| 500 | Indeterminado | **No reintentar el cobro**: conciliar |
+
+## 5. Modelo de datos (migraciones nuevas)
+
+```sql
+-- One row per charge attempt on the Clover device.
+create table public.pagos_externos (
+  id uuid primary key default gen_random_uuid(),
+  proveedor text not null default 'clover',
+  external_payment_id text not null unique,       -- ≤ 32, generated by us
+  estado text not null check (estado in
+    ('pendiente','enviado','aprobado','rechazado','cancelado','indeterminado','venta_registrada','error_registro','reembolsado')),
+  metodo_pago text not null check (metodo_pago in ('Tarjeta','QR')),
+  monto numeric not null check (monto > 0),
+  carrito jsonb not null,                          -- items, cliente, descuento, recargo (snapshot to register the sale)
+  venta_id uuid references public.ventas (id),
+  sesion_caja uuid references public.sesiones_caja (id),
+  usuario_id uuid references public.perfiles (id),
+  clover_payment_id text,
+  tarjeta_tipo text, tarjeta_ultimos4 text, codigo_autorizacion text, cuotas int, tipo_ingreso text,
+  respuesta jsonb,                                 -- raw provider response without card data
+  error text,
+  intentos_conciliacion int not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Single-row integration settings and OAuth tokens (tokens encrypted by the backend).
+create table public.integracion_clover (
+  id int primary key default 1 check (id = 1),
+  merchant_id text, device_id text, pos_id text,
+  access_token_cifrado text, refresh_token_cifrado text, access_expira_at timestamptz,
+  habilitado boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+```
+
+- Ambas con RLS sin políticas y permisos solo para `service_role` (igual que el resto).
+- `ventas` gana `pago_externo_id uuid references pagos_externos(id)` para trazar venta ↔ pago.
+- `registrar_venta` gana el parámetro `p_total_esperado numeric default null`: si no coincide con el total calculado, falla con un código nuevo **MU011** ("El total cambió desde que se inició el cobro"). Así nunca se registra una venta por un monto distinto al cobrado.
+- Nueva función `cotizar_venta(...)`: mismo cálculo que `registrar_venta` (precios de la base, descuento y recargo, tope del empleado, stock) **sin escribir nada**. Devuelve subtotal, descuento, recargo y total.
+
+## 6. Flujo de cobro
+
+```
+POS                         admin-mu                                   Clover
+ │ POST /pagos/clover        │                                           │
+ │ {carrito, metodo}  ─────► │ cotizar_venta → total                     │
+ │                           │ valida caja abierta, stock, Clover ok     │
+ │                           │ inserta pagos_externos (pendiente)        │
+ │ ◄── 202 {pago_id, total}  │ lanza tarea: POST /v1/payments ─────────► │ cliente paga
+ │                           │                                           │
+ │ GET /pagos/{id} (cada 1s) │ ◄──────────── 200 {result: SUCCESS} ───── │
+ │                           │ registrar_venta(p_total_esperado, idem=pago_id)
+ │                           │ estado = venta_registrada, venta_id       │
+ │ ◄── {estado, venta}       │ POST welcome ───────────────────────────► │
+```
+
+1. **Iniciar** — `POST /api/v1/pagos/clover` con el mismo carrito que hoy usa `POST /ventas/` + `metodo_pago` (`Tarjeta` o `QR`). El backend cotiza, valida y crea el pago en `pendiente`. Responde **202** de inmediato.
+2. **Cobrar** — una tarea en segundo plano llama a `POST /v1/payments` con `amount` en centavos y `externalPaymentId`. El estado pasa a `enviado`. Como esa llamada puede tardar hasta 135 s, **no se hace dentro del request del navegador**: el POS consulta `GET /api/v1/pagos/{id}` cada ~1 s y muestra "Esperando pago en el Clover…", con un botón "Cancelar".
+3. **Aprobado** — se llama a `registrar_venta` con el carrito guardado, `p_total_esperado` y la clave de idempotencia = id del pago (si la tarea se repite, no duplica la venta). Estado `venta_registrada`.
+   - Si `registrar_venta` falla (stock agotado en el medio, MU011 por cambio de precio, caja cerrada): estado `error_registro` y **se reembolsa automáticamente** el cobro (sección 7). El POS muestra el motivo.
+4. **Rechazado / cancelado** — estado `rechazado` o `cancelado`; no se registra nada.
+5. **Indeterminado** (timeout, 500, 504, corte de red) — estado `indeterminado`. La conciliación consulta `GET /v1/payments/external/{externalPaymentId}` al menos 3 veces con espera creciente y lo resuelve como aprobado (y registra la venta) o rechazado. **Nunca se reintenta el cobro** mientras un pago esté indeterminado.
+6. **Cancelar desde el POS** — `POST /api/v1/pagos/{id}/cancelar` → `POST /v1/device/cancel`. El estado final lo sigue decidiendo la respuesta del cobro.
+7. Después de cada transacción se manda la pantalla de bienvenida.
+
+Un solo cobro a la vez por dispositivo: si hay un pago `pendiente`/`enviado`/`indeterminado`, `POST /pagos/clover` responde 409.
+
+## 7. Anulaciones y devoluciones de ventas cobradas con Clover
+
+Regla: **primero Clover, después la base**. Si Clover falla, no se toca nada en la base.
+
+- **Anular venta** (admin): `POST /v1/payments/{id}/refunds` con `fullRefund: true`; con éxito, `anular_venta`. En Argentina el cierre de lote es automático, así que se usa reembolso en lugar de *void* (a confirmar con Fiserv si el *void* aplica antes del cierre).
+- **Devolución parcial** (admin): reembolso por el monto calculado por `registrar_devolucion` (proporcional), y después `registrar_devolucion`. Para no adivinar el monto, se agrega `cotizar_devolucion` (cálculo sin escritura).
+- **Reembolso indeterminado**: queda pendiente en `pagos_externos` y lo resuelve la conciliación consultando el pago.
+- Las ventas con tarjeta/QR **no generan egreso de caja** (ya es así: solo el efectivo mueve la caja).
+
+## 8. OAuth y configuración
+
+- Variables de entorno (`.env`, nunca en el repo): `CLOVER_ENV` (`sandbox`|`production`), `CLOVER_CONNECT_URL`, `CLOVER_API_URL`, `CLOVER_APP_ID`, `CLOVER_APP_SECRET`, `CLOVER_TOKEN_KEY` (clave para cifrar los tokens en la base).
+- **Conectar el comercio** (una vez, admin): página "Integraciones → Clover" en `pos-mu` → redirige a la autorización OAuth de Clover → callback `GET /api/v1/integraciones/clover/callback` intercambia el código por `access_token` + `refresh_token` y los guarda cifrados.
+- **Renovación**: el `refresh_token` es de un solo uso. Se renueva con la fila bloqueada (`select ... for update`) para que dos requests no gasten el mismo token. Si la renovación falla, la integración queda deshabilitada y la UI pide reconectar.
+- En la misma página: número de serie del dispositivo, id del POS, botón "Probar conexión" (`ping` + `status`) y un interruptor para habilitar/deshabilitar la integración.
+
+## 9. Cambios en el POS (`pos-mu`)
+
+- `features/pagos/` nuevo: `api.ts` (iniciar, consultar, cancelar), hook `useCloverPayment(pagoId)` con polling y estados.
+- Checkout: con Tarjeta o QR y la integración habilitada, "Cobrar" abre un modal de espera (no cerrable salvo con "Cancelar"), muestra el total que se cobró, y al aprobar se comporta como una venta normal (aviso con "Imprimir ticket"). Con la integración deshabilitada, el flujo actual sigue igual.
+- Ticket: agrega marca de tarjeta, últimos 4, código de autorización y cuotas.
+- Historial y detalle: muestran la referencia del pago. Anular y devolver muestran "Reembolsando en Clover…".
+- Pantalla de admin para pagos `indeterminado` / `error_registro`, con "Reintentar conciliación".
+
+## 10. Cuotas, comprobante y QR (pendientes de confirmar)
+
+- **Cuotas y número de comprobante**: la doc de Argentina usa `regionalExtras.argentina.numInstallments` (1–99) e `invoiceNumber` ([extras regionales](https://docs.clover.com/dev/docs/regional-extras)), pero el esquema de `POST /v1/payments` no tiene ese campo. Se implementa detrás de una opción, después de probarlo en sandbox.
+- **QR ("Pagos QR" de Fiserv)**: no forma parte de la API de pagos documentada; el detalle está en un PDF externo de Clover. Alternativas, a decidir cuando se confirme:
+  1. Si el Mini procesa el QR dentro del mismo cobro (el `entryType` admite `QR_CODE`), el flujo es idéntico al de tarjeta.
+  2. Si es una app aparte, el POS registra la venta "QR" con la referencia que el cajero copia del Clover (sin integración automática).
+
+## 11. Seguridad
+
+- Secretos y tokens solo en el backend; tokens cifrados en reposo; nunca en logs ni en la auditoría.
+- Solo se guardan los últimos 4 dígitos y la marca; ningún dato sensible de la tarjeta.
+- Auditoría: `CHARGE_STARTED`, `CHARGE_APPROVED`, `CHARGE_FAILED`, `REFUND_REQUESTED`, `REFUND_DONE`, `CLOVER_CONNECTED`.
+- Permisos: cualquier usuario activo puede cobrar; anular, devolver, conectar la integración y conciliar son solo admin (igual que hoy).
+
+## 12. Pruebas
+
+- **Unitarias** (pytest): cliente de Clover falso que simula aprobado, rechazado, cancelado (209), ocupado (503), timeout y 500; verificar que nunca se cobra dos veces y que la venta se registra una sola vez.
+- **Base de datos**: `cotizar_venta`, MU011 y el reembolso automático, probados en una transacción que se revierte (como en las fases anteriores).
+- **Sandbox de Clover**: comercio de prueba y dispositivo de desarrollo. Escenarios: aprobado, rechazado, cancelado en el dispositivo, corte de red durante el cobro, reembolso total y parcial, token vencido.
+- **Piloto en el local**: la integración arranca deshabilitada; se habilita con montos chicos y se concilia contra el reporte del Clover al cierre.
+
+## 13. Plan de implementación
+
+| Fase | Contenido | Depende de |
+|---|---|---|
+| 0 | Cuenta en el portal de desarrolladores, comercio sandbox, app configurada; respuestas de Fiserv a la sección 14 | Fiserv |
+| 1 | Migraciones, cliente Clover, OAuth, página de integración, "Probar conexión" | Fase 0 |
+| 2 | Cobro con tarjeta + polling + conciliación + ticket | Fase 1 |
+| 3 | Anulación y devolución vía reembolso | Fase 2 |
+| 4 | Cuotas y número de comprobante | Confirmación en sandbox |
+| 5 | QR | Respuesta de Fiserv |
+| 6 | Piloto y habilitación | Fases 2–3 |
+
+Mejora inmediata sin integración: permitir cargar a mano el código de autorización y los últimos 4 dígitos en las ventas con tarjeta/QR, para conciliar contra el Clover desde ya.
+
+## 14. Preguntas para Fiserv / Clover
+
+1. URL cloud de producción de `/connect` para Argentina (LATAM).
+2. ¿`POST /v1/payments` acepta `regionalExtras.argentina` (cuotas, comprobante)? ¿Dónde vuelve la cantidad de cuotas en la respuesta?
+3. ¿Cómo se dispara "Pagos QR" desde una integración semi-integrada? ¿Es el mismo cobro o una app aparte?
+4. ¿Se puede hacer *void* antes del cierre automático o siempre reembolso?
+5. La página de comercios argentinos solo lista "Secure Network Pay Display" y "Payment Connector", mientras la guía LATAM lista Cloud y REST Pay Display: ¿cuál es la vigente?
+6. Requisitos de certificación, costos, plan del comercio (Payments Plus) y si proveen un Mini de desarrollo.
+7. Dónde obtener el número de serie (`X-Clover-Device-Id`) del dispositivo del local.
+
+## Fuentes
+
+- [Guía de referencia rápida LATAM](https://docs.clover.com/dev/docs/quick-reference-guides-latam-developers)
+- [Pay Display apps](https://docs.clover.com/dev/docs/pay-display-apps)
+- [Flujos de pago REST Pay](https://docs.clover.com/dev/docs/rest-pay-payment-flows)
+- [Conexión cloud](https://docs.clover.com/dev/docs/build-a-cloud-connection-request)
+- [Referencia de la API](https://docs.clover.com/dev/reference/api-reference-overview)
+- [OAuth en Clover](https://docs.clover.com/docs/oauth-flows-in-clover)
+- [Comercios argentinos](https://docs.clover.com/dev/docs/argentine-merchants)
+- [Extras regionales: Argentina](https://docs.clover.com/dev/docs/regional-extras)
