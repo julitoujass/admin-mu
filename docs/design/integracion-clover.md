@@ -131,7 +131,7 @@ POS                         admin-mu                                   Clover
 3. **Aprobado** — se llama a `registrar_venta` con el carrito guardado, `p_total_esperado` y la clave de idempotencia = id del pago (si la tarea se repite, no duplica la venta). Estado `venta_registrada`.
    - Si `registrar_venta` falla (stock agotado en el medio, MU011 por cambio de precio, caja cerrada): estado `error_registro` y **se reembolsa automáticamente** el cobro (sección 7). El POS muestra el motivo.
 4. **Rechazado / cancelado** — estado `rechazado` o `cancelado`; no se registra nada.
-5. **Indeterminado** (timeout, 500, 504, corte de red) — estado `indeterminado`. La conciliación consulta `GET /v1/payments/external/{externalPaymentId}` al menos 3 veces con espera creciente y lo resuelve como aprobado (y registra la venta) o rechazado. **Nunca se reintenta el cobro** mientras un pago esté indeterminado.
+5. **Indeterminado** (timeout, 500, 504, corte de red) — estado `indeterminado`. La misma tarea concilia en el acto: consulta `GET /v1/payments/external/{externalPaymentId}` al menos 3 veces con espera creciente (≈ 2 s, 5 s, 10 s) y lo resuelve como aprobado (y registra la venta) o rechazado. Lo que no se resuelve ahí, y los cobros que quedaron `enviado` porque el proceso murió, los toma un barrido al iniciar el backend y cada 60 s. **Nunca se reintenta el cobro** mientras un pago esté indeterminado.
 6. **Cancelar desde el POS** — `POST /api/v1/pagos/{id}/cancelar` → `POST /v1/device/cancel`. El estado final lo sigue decidiendo la respuesta del cobro.
 7. Después de cada transacción se manda la pantalla de bienvenida.
 
@@ -193,9 +193,6 @@ Regla: **primero Clover, después la base**. Si Clover falla, no se toca nada en
 | 4 | Cuotas y número de comprobante | Confirmación en sandbox |
 | 5 | QR | Respuesta de Fiserv |
 | 6 | Piloto y habilitación | Fases 2–3 |
-
-Mejora inmediata sin integración: permitir cargar a mano el código de autorización y los últimos 4 dígitos en las ventas con tarjeta/QR, para conciliar contra el Clover desde ya.
-
 ## 14. Preguntas para Fiserv / Clover
 
 1. URL cloud de producción de `/connect` para Argentina (LATAM).
