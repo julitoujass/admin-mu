@@ -35,6 +35,13 @@ def test_event_names_are_the_normalized_set():
         "RETURN_SALE",
         "UPDATE_ROL",
         "UPDATE_ACTIVO",
+        "CHARGE_STARTED",
+        "CHARGE_APPROVED",
+        "CHARGE_FAILED",
+        "CHARGE_UNKNOWN",
+        "CHARGE_CANCELLED",
+        "REFUND_DONE",
+        "TERMINAL_SETTINGS",
     }
 
 

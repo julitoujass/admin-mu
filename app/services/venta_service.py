@@ -17,6 +17,11 @@ DEVOLUCION_COLUMNS = (
     "devoluciones(id, created_at, motivo, monto, metodo_pago, usuario:perfiles!usuario_id(id, nombre), "
     "items:devolucion_items(variante_id, cantidad, monto))"
 )
+# Terminal charge that paid the sale. The two tables reference each other, so the embed
+# names the foreign key it follows (`ventas.pago_externo_id`): one object, or null.
+PAGO_COLUMNS = (
+    "pago:pagos_externos!pago_externo_id(metodo_pago, tarjeta_marca, tarjeta_ultimos4, codigo_autorizacion, cuotas, proveedor)"
+)
 
 
 def _venta_detail_columns(include_costs: bool) -> str:
@@ -27,7 +32,7 @@ def _venta_detail_columns(include_costs: bool) -> str:
         f"{VENTA_BASE_COLUMNS}, motivo_anulacion, anulada_at, anulada_por:perfiles!anulada_por(id, nombre){total_cost}, "
         f"items:venta_detalle(variante_id, cantidad, precio_unitario, subtotal{item_cost}, "
         "variante:producto_variantes(sku, talle, color, producto:productos(nombre))), "
-        f"{DEVOLUCION_COLUMNS}"
+        f"{DEVOLUCION_COLUMNS}, {PAGO_COLUMNS}"
     )
 
 

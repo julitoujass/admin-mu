@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -7,20 +8,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from postgrest.exceptions import APIError
 
+from app.api.deps import get_pago_service
 from app.api.v1.endpoints import (
     auditoria,
     caja,
     catalogos,
     clientes,
     configuracion,
+    pagos,
     productos,
     reportes,
     usuarios,
     ventas,
 )
 from app.core.config import settings
-from app.core.exceptions import CajaError, UsuarioError
+from app.core.exceptions import CajaError, PagoError, UsuarioError
 from app.core.supabase import supabase
+from app.services.pago_reconciler import start_reconciler, stop_reconciler
 
 logging.basicConfig(
     level=logging.getLevelNamesMapping().get(settings.LOG_LEVEL.upper(), logging.INFO),
@@ -52,9 +56,23 @@ DB_BUSINESS_ERROR_STATUS = {
     "MU008": 409,  # sale is cancelled (cannot be returned)
     "MU009": 409,  # return quantity above what is left to return
     "MU010": 409,  # sale has returns (cannot be cancelled)
+    "MU011": 409,  # total changed since the terminal charge started
 }
 
-app = FastAPI(title="Uniforms POS API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Safety net for terminal charges left unresolved (process restart, unknown result):
+    # one sweep at startup and then one every PAYMENT_RECONCILE_INTERVAL_SECONDS (0 disables it).
+    interval = settings.PAYMENT_RECONCILE_INTERVAL_SECONDS
+    reconciler = start_reconciler(get_pago_service().conciliar_pendientes, interval) if interval > 0 else None
+    try:
+        yield
+    finally:
+        await stop_reconciler(reconciler)
+
+
+app = FastAPI(title="Uniforms POS API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -76,6 +94,14 @@ async def usuario_exception_handler(request: Request, exc: UsuarioError):
 
 @app.exception_handler(CajaError)
 async def caja_exception_handler(request: Request, exc: CajaError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.message},
+    )
+
+
+@app.exception_handler(PagoError)
+async def pago_exception_handler(request: Request, exc: PagoError):
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.message},
@@ -129,6 +155,8 @@ app.include_router(catalogos.router, prefix="/api/v1/catalogos", tags=["Catálog
 app.include_router(usuarios.router, prefix="/api/v1/usuarios", tags=["Usuarios"])
 app.include_router(configuracion.router, prefix="/api/v1/configuracion", tags=["Configuración"])
 app.include_router(auditoria.router, prefix="/api/v1/auditoria", tags=["Auditoría"])
+app.include_router(pagos.router, prefix="/api/v1/pagos", tags=["Pagos"])
+app.include_router(pagos.integraciones_router, prefix="/api/v1/integraciones", tags=["Integraciones"])
 
 
 @app.get("/")

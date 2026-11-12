@@ -125,11 +125,24 @@ class DevolucionResponse(BaseModel):
     items: List[DevolucionItemResponse] = []
 
 
+class PagoVentaRef(BaseModel):
+    """Terminal charge (card / QR) that paid a sale. Never more card data than brand and last 4."""
+
+    metodo_pago: str
+    tarjeta_marca: Optional[str] = None
+    tarjeta_ultimos4: Optional[str] = None
+    codigo_autorizacion: Optional[str] = None
+    cuotas: Optional[int] = None
+    proveedor: str
+
+
 class _VentaDetalleBase(VentaListItem):
     motivo_anulacion: Optional[str] = None
     anulada_at: Optional[datetime] = None
     anulada_por: Optional[PersonaRef] = None
     devoluciones: List[DevolucionResponse] = []
+    # Set only for sales charged on the payment terminal (`ventas.pago_externo_id`).
+    pago: Optional[PagoVentaRef] = None
 
 
 # The two detail models are siblings (not parent/child) on purpose: the endpoint

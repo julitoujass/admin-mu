@@ -133,7 +133,7 @@ def use_db(monkeypatch, *responses):
 
 
 # (method, path, json body, database responses for a successful admin call).
-# Routes with `None` responses have their admin behaviour covered in test_usuarios.py.
+# Routes with `None` responses have their admin behaviour covered in test_usuarios.py / test_pagos.py.
 ADMIN_ONLY_ROUTES = [
     ("POST", "/productos/", {"nombre": "Remera"}, [[PRODUCT_ROW]]),
     ("PATCH", f"/productos/{PRODUCT_ID}", {"nombre": "Remera"}, [[PRODUCT_ROW]]),
@@ -169,6 +169,9 @@ ADMIN_ONLY_ROUTES = [
     ("GET", "/usuarios/roles", None, [[]]),
     ("PATCH", f"/usuarios/{USER_ID}/rol", {"rol_id": 1}, None),
     ("PATCH", f"/usuarios/{USER_ID}/activo", {"activo": True}, None),
+    ("GET", "/pagos/", None, None),
+    ("POST", f"/pagos/{SALE_ID}/conciliar", None, None),
+    ("PATCH", "/integraciones/terminal", {"habilitado": True}, None),
 ]
 
 # (method, path, json body, database responses)

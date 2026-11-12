@@ -7,6 +7,10 @@ os.environ["SUPABASE_KEY"] = "test-key"
 os.environ["ENVIRONMENT"] = "test"
 os.environ["CORS_ORIGINS"] = "http://localhost:3000, https://pos.example.com"
 os.environ["LOG_LEVEL"] = "WARNING"
+os.environ["PAYMENT_TERMINAL"] = "fake"
+os.environ["PAYMENT_FAKE_DELAY_SECONDS"] = "0"
+# No background sweep of terminal charges while testing.
+os.environ["PAYMENT_RECONCILE_INTERVAL_SECONDS"] = "0"
 
 from unittest.mock import MagicMock  # noqa: E402
 

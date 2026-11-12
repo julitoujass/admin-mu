@@ -426,6 +426,7 @@ DETAIL_EMPLOYEE = {
     "anulada_at": None,
     "anulada_por": None,
     "devoluciones": [],
+    "pago": None,
     "items": [
         {
             "variante_id": VARIANT_A,
@@ -465,6 +466,7 @@ DETAIL_SELECT = (
     + "items:venta_detalle(variante_id, cantidad, precio_unitario, subtotal{cost}, "
     + "variante:producto_variantes(sku, talle, color, producto:productos(nombre))), "
     + RETURNS_SELECT
+    + ", pago:pagos_externos!pago_externo_id(metodo_pago, tarjeta_marca, tarjeta_ultimos4, codigo_autorizacion, cuotas, proveedor)"
 )
 ADMIN_DETAIL_SELECT = DETAIL_SELECT.format(cost=", costo_unitario", total_cost=", total_costo")
 EMPLOYEE_DETAIL_SELECT = DETAIL_SELECT.format(cost="", total_cost="")
@@ -486,6 +488,23 @@ def test_sale_detail_for_admin_includes_costs(auth_client, monkeypatch):
     assert (query.kind, query.name) == ("table", "ventas")
     assert query.args_of("select") == [(ADMIN_DETAIL_SELECT,)]
     assert query.args_of("eq") == [("id", SALE_ID)]
+
+
+def test_sale_detail_includes_the_terminal_payment_that_paid_it(employee_client, monkeypatch):
+    pago = {
+        "metodo_pago": "Tarjeta",
+        "tarjeta_marca": "VISA",
+        "tarjeta_ultimos4": "4242",
+        "codigo_autorizacion": "123456",
+        "cuotas": 3,
+        "proveedor": "fake",
+    }
+    use_db(monkeypatch, [{**without_costs(DETAIL_ROW), "pago": {**pago, "respuesta": {"raw": True}}}])
+
+    response = employee_client.get(f"/api/v1/ventas/{SALE_ID}")
+
+    assert response.status_code == 200
+    assert response.json() == {**DETAIL_EMPLOYEE, "pago": pago}
 
 
 def test_sale_detail_for_employee_never_reads_costs(employee_client, monkeypatch):
