@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Annotated, List, Optional
+from uuid import UUID
 
 from pydantic import UUID4, BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
@@ -26,7 +27,7 @@ class VariantCreate(BaseModel):
 
 class VariantUpdate(BaseModel):
     # stock_actual is intentionally absent: stock only changes through
-    # PATCH /productos/inventario/stock (atomic `ajustar_stock`) or a sale.
+    # PATCH /productos/inventario/stock (atomic `registrar_ajuste_stock`) or a sale.
     sku: Optional[Sku] = None
     talle: Optional[Talle] = None
     color: Optional[Color] = None
@@ -49,7 +50,7 @@ class VariantResponse(BaseModel):
 
 
 class StockAdjustResponse(VariantResponse):
-    """Full `producto_variantes` row returned by the `ajustar_stock` function."""
+    """Full `producto_variantes` row returned by the `registrar_ajuste_stock` function."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -82,6 +83,7 @@ class StockUpdate(BaseModel):
     variante_id: UUID4
     # Delta applied to the current stock: positive adds, negative removes.
     cantidad: int
+    # Stored in the stock ledger (`movimientos_stock.motivo`) and in the audit log.
     motivo: Motivo
 
     @field_validator("cantidad")
@@ -90,3 +92,30 @@ class StockUpdate(BaseModel):
         if value == 0:
             raise ValueError("cantidad no puede ser 0")
         return value
+
+
+class UsuarioRef(BaseModel):
+    # Plain UUID: profile ids come from auth.users and are not necessarily version 4.
+    id: UUID
+    nombre: Optional[str] = None
+
+
+class StockMovementResponse(BaseModel):
+    """One row of the stock ledger (kardex) of a variant."""
+
+    id: int
+    created_at: datetime
+    # 'venta' | 'anulacion' | 'ajuste'
+    tipo: str
+    # Signed delta: negative when stock left, positive when it came back or was added.
+    cantidad: int
+    stock_resultante: int
+    venta_id: Optional[UUID] = None
+    motivo: Optional[str] = None
+    usuario: Optional[UsuarioRef] = None
+
+
+class StockMovementListResponse(BaseModel):
+    items: List[StockMovementResponse]
+    # Exact number of movements of the variant, regardless of limit/offset.
+    total: int

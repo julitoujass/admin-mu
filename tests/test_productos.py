@@ -2,7 +2,7 @@ import pytest
 from postgrest.exceptions import APIError
 
 from app.services import producto_service
-from tests.fakes import FakeSupabase
+from tests.fakes import Counted, FakeSupabase
 
 VARIANT_ID = "11111111-1111-4111-8111-111111111111"
 PRODUCT_ID = "77777777-7777-4777-8777-777777777777"
@@ -43,8 +43,13 @@ def test_stock_adjustment_uses_atomic_rpc(auth_client, monkeypatch):
     assert response.status_code == 200
     assert response.json()["stock_actual"] == 7
     assert len(db.queries) == 1
-    assert (db.queries[0].kind, db.queries[0].name) == ("rpc", "ajustar_stock")
-    assert db.queries[0].params == {"p_variante_id": VARIANT_ID, "p_cantidad": -3}
+    assert (db.queries[0].kind, db.queries[0].name) == ("rpc", "registrar_ajuste_stock")
+    assert db.queries[0].params == {
+        "p_variante_id": VARIANT_ID,
+        "p_cantidad": -3,
+        "p_usuario_id": "00000000-0000-0000-0000-000000000001",
+        "p_motivo": "Rotura",
+    }
 
 
 @pytest.mark.parametrize(
@@ -79,6 +84,80 @@ def test_stock_adjustment_going_negative_is_a_conflict(auth_client, monkeypatch)
 
     assert response.status_code == 409
     assert response.json() == {"detail": "El stock no puede quedar negativo"}
+
+
+# --- kardex ------------------------------------------------------------------
+
+KARDEX_URL = f"/api/v1/productos/variante/{VARIANT_ID}/movimientos"
+MOVEMENT_ROW = {
+    "id": 42,
+    "created_at": "2026-11-11T15:00:00+00:00",
+    "tipo": "venta",
+    "cantidad": -2,
+    "stock_resultante": 5,
+    "venta_id": "22222222-2222-4222-8222-222222222222",
+    "motivo": None,
+    "usuario": {"id": "00000000-0000-0000-0000-000000000001", "nombre": "Admin"},
+}
+
+
+def calls_of(query, method):
+    return [(args, kwargs) for name, args, kwargs in query.calls if name == method]
+
+
+def test_kardex_lists_the_variant_movements_with_total(auth_client, monkeypatch):
+    adjustment = {**MOVEMENT_ROW, "id": 41, "tipo": "ajuste", "cantidad": 7, "venta_id": None, "usuario": None}
+    db = use_db(monkeypatch, Counted([MOVEMENT_ROW, adjustment], 61))
+
+    response = auth_client.get(KARDEX_URL)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [
+            {**MOVEMENT_ROW, "created_at": "2026-11-11T15:00:00Z"},
+            {**adjustment, "created_at": "2026-11-11T15:00:00Z"},
+        ],
+        "total": 61,
+    }
+    query = db.queries[0]
+    assert (query.kind, query.name) == ("table", "movimientos_stock")
+    assert calls_of(query, "select") == [
+        (
+            ("id, created_at, tipo, cantidad, stock_resultante, venta_id, motivo, usuario:perfiles(id, nombre)",),
+            {"count": "exact"},
+        )
+    ]
+    assert query.args_of("eq") == [("variante_id", VARIANT_ID)]
+    assert calls_of(query, "order") == [(("created_at",), {"desc": True}), (("id",), {"desc": True})]
+    assert query.args_of("range") == [(0, 49)]
+
+
+def test_kardex_paging(auth_client, monkeypatch):
+    db = use_db(monkeypatch, Counted([], 0))
+
+    response = auth_client.get(KARDEX_URL, params={"limit": 200, "offset": 400})
+
+    assert response.json() == {"items": [], "total": 0}
+    assert db.queries[0].args_of("range") == [(400, 599)]
+
+
+@pytest.mark.parametrize("params", [{"limit": 0}, {"limit": 201}, {"offset": -1}])
+def test_kardex_rejects_invalid_paging(auth_client, monkeypatch, params):
+    db = use_db(monkeypatch)
+
+    response = auth_client.get(KARDEX_URL, params=params)
+
+    assert response.status_code == 422
+    assert db.queries == []
+
+
+def test_kardex_is_admin_only(employee_client, monkeypatch):
+    db = use_db(monkeypatch)
+
+    response = employee_client.get(KARDEX_URL)
+
+    assert response.status_code == 403
+    assert db.queries == []
 
 
 # --- schema validation -------------------------------------------------------

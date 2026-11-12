@@ -1,7 +1,7 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from app.api.auth_deps import RoleChecker, get_current_user
 from app.schemas.common import OkResponse
@@ -10,6 +10,7 @@ from app.schemas.productos import (
     ProductResponse,
     ProductUpdate,
     StockAdjustResponse,
+    StockMovementListResponse,
     StockUpdate,
     VariantCreate,
     VariantResponse,
@@ -52,7 +53,7 @@ def get_product_by_sku(sku: str, current_user = Depends(get_current_user)):
 
 @router.patch("/inventario/stock", response_model=StockAdjustResponse)
 def update_stock(update: StockUpdate, background_tasks: BackgroundTasks, current_user = Depends(RoleChecker(["admin"]))):
-    result = ProductService.update_stock(update)
+    result = ProductService.update_stock(update, current_user.id)
     audit(
         background_tasks,
         current_user,
@@ -91,6 +92,15 @@ def create_variant(variant: VariantCreate, background_tasks: BackgroundTasks, cu
         respuesta=result,
     )
     return result
+
+@router.get("/variante/{id}/movimientos", response_model=StockMovementListResponse)
+def get_variant_stock_movements(
+    id: UUID,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    current_user = Depends(RoleChecker(["admin"])),
+):
+    return ProductService.get_stock_movements(str(id), limit=limit, offset=offset)
 
 @router.patch("/variante/{id}", response_model=VariantResponse)
 def update_variant(id: UUID, variant_update: VariantUpdate, background_tasks: BackgroundTasks, current_user = Depends(RoleChecker(["admin"]))):

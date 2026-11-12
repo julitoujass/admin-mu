@@ -2,6 +2,10 @@ from app.core.db_utils import fetch_all, single_row
 from app.core.supabase import supabase
 from app.schemas.productos import ProductCreate, ProductUpdate, StockUpdate, VariantCreate, VariantUpdate
 
+STOCK_MOVEMENT_COLUMNS = (
+    "id, created_at, tipo, cantidad, stock_resultante, venta_id, motivo, usuario:perfiles(id, nombre)"
+)
+
 
 class ProductService:
     @staticmethod
@@ -48,14 +52,35 @@ class ProductService:
         return response.data[0]
 
     @staticmethod
-    def update_stock(update: StockUpdate):
-        """Apply a stock delta atomically through the `ajustar_stock` database function.
+    def update_stock(update: StockUpdate, usuario_id: str):
+        """Apply a stock delta atomically through the `registrar_ajuste_stock` database function.
 
+        The function also writes the movement (who, how much, why) to the stock ledger.
         Raises APIError MU004 (variant not found) or MU002 (stock would go negative).
         """
-        params = {"p_variante_id": str(update.variante_id), "p_cantidad": update.cantidad}
-        res = supabase.rpc("ajustar_stock", params).execute()
+        params = {
+            "p_variante_id": str(update.variante_id),
+            "p_cantidad": update.cantidad,
+            "p_usuario_id": str(usuario_id),
+            "p_motivo": update.motivo,
+        }
+        res = supabase.rpc("registrar_ajuste_stock", params).execute()
         return single_row(res.data)
+
+    @staticmethod
+    def get_stock_movements(variant_id: str, limit: int = 50, offset: int = 0) -> dict:
+        """One page of the stock ledger (kardex) of a variant, newest first, plus the exact count."""
+        res = (
+            supabase.table("movimientos_stock")
+            .select(STOCK_MOVEMENT_COLUMNS, count="exact")
+            .eq("variante_id", variant_id)
+            .order("created_at", desc=True)
+            .order("id", desc=True)
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
+        items = res.data or []
+        return {"items": items, "total": res.count if res.count is not None else len(items)}
 
     @staticmethod
     def get_product_by_sku(sku: str):
