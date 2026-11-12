@@ -25,6 +25,130 @@
         "title": "AjusteVenta",
         "type": "object"
       },
+      "AuditLogItem": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "descripcion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descripcion"
+          },
+          "entidad": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entidad"
+          },
+          "entidad_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entidad Id"
+          },
+          "estado": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estado"
+          },
+          "evento": {
+            "title": "Evento",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Id"
+          },
+          "payload_enviado": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload Enviado"
+          },
+          "respuesta_recibida": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Respuesta Recibida"
+          },
+          "usuario": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "evento"
+        ],
+        "title": "AuditLogItem",
+        "type": "object"
+      },
+      "AuditLogListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AuditLogItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "AuditLogListResponse",
+        "type": "object"
+      },
       "CajaApertura": {
         "properties": {
           "monto_apertura": {
@@ -323,6 +447,24 @@
           "nombre"
         ],
         "title": "CategoriaCreate",
+        "type": "object"
+      },
+      "CategoriaRef": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nombre": {
+            "title": "Nombre",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nombre"
+        ],
+        "title": "CategoriaRef",
         "type": "object"
       },
       "CategoriaResponse": {
@@ -695,6 +837,322 @@
         "title": "ClienteUpdate",
         "type": "object"
       },
+      "ConfiguracionResponse": {
+        "properties": {
+          "cuit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cuit"
+          },
+          "descuento_max_empleado": {
+            "title": "Descuento Max Empleado",
+            "type": "number"
+          },
+          "direccion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direccion"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nombre_negocio": {
+            "title": "Nombre Negocio",
+            "type": "string"
+          },
+          "pie_ticket": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pie Ticket"
+          },
+          "telefono": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telefono"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "nombre_negocio",
+          "descuento_max_empleado"
+        ],
+        "title": "ConfiguracionResponse",
+        "type": "object"
+      },
+      "ConfiguracionUpdate": {
+        "description": "Partial update: only the fields that are sent change. Optional texts accept `null` to clear them.",
+        "properties": {
+          "cuit": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cuit"
+          },
+          "descuento_max_empleado": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descuento Max Empleado"
+          },
+          "direccion": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direccion"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "format": "email",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "nombre_negocio": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nombre Negocio"
+          },
+          "pie_ticket": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pie Ticket"
+          },
+          "telefono": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telefono"
+          }
+        },
+        "title": "ConfiguracionUpdate",
+        "type": "object"
+      },
+      "DevolucionCreate": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DevolucionItemCreate"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "motivo": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Motivo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "motivo",
+          "items"
+        ],
+        "title": "DevolucionCreate",
+        "type": "object"
+      },
+      "DevolucionItemCreate": {
+        "properties": {
+          "cantidad": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000.0,
+            "title": "Cantidad",
+            "type": "integer"
+          },
+          "variante_id": {
+            "format": "uuid",
+            "title": "Variante Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variante_id",
+          "cantidad"
+        ],
+        "title": "DevolucionItemCreate",
+        "type": "object"
+      },
+      "DevolucionItemResponse": {
+        "properties": {
+          "cantidad": {
+            "title": "Cantidad",
+            "type": "integer"
+          },
+          "monto": {
+            "title": "Monto",
+            "type": "number"
+          },
+          "variante_id": {
+            "format": "uuid",
+            "title": "Variante Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variante_id",
+          "cantidad",
+          "monto"
+        ],
+        "title": "DevolucionItemResponse",
+        "type": "object"
+      },
+      "DevolucionResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "items": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DevolucionItemResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "metodo_pago": {
+            "title": "Metodo Pago",
+            "type": "string"
+          },
+          "monto": {
+            "title": "Monto",
+            "type": "number"
+          },
+          "motivo": {
+            "title": "Motivo",
+            "type": "string"
+          },
+          "usuario": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "motivo",
+          "monto",
+          "metodo_pago"
+        ],
+        "title": "DevolucionResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -706,6 +1164,96 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LowStockItem": {
+        "description": "Variant at or below its minimum stock. No cost data.",
+        "properties": {
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "producto_id": {
+            "format": "uuid",
+            "title": "Producto Id",
+            "type": "string"
+          },
+          "producto_nombre": {
+            "title": "Producto Nombre",
+            "type": "string"
+          },
+          "sku": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sku"
+          },
+          "stock_actual": {
+            "title": "Stock Actual",
+            "type": "integer"
+          },
+          "stock_minimo": {
+            "title": "Stock Minimo",
+            "type": "integer"
+          },
+          "talle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Talle"
+          },
+          "variante_id": {
+            "format": "uuid",
+            "title": "Variante Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variante_id",
+          "producto_id",
+          "producto_nombre",
+          "stock_actual",
+          "stock_minimo"
+        ],
+        "title": "LowStockItem",
+        "type": "object"
+      },
+      "LowStockResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LowStockItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "LowStockResponse",
         "type": "object"
       },
       "MarcaCreate": {
@@ -951,6 +1499,24 @@
         "title": "PersonaRef",
         "type": "object"
       },
+      "ProductCategoriesUpdate": {
+        "description": "Replaces the whole set of categories of a product (an empty list clears it).",
+        "properties": {
+          "categoria_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "title": "Categoria Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "categoria_ids"
+        ],
+        "title": "ProductCategoriesUpdate",
+        "type": "object"
+      },
       "ProductCreate": {
         "properties": {
           "descripcion": {
@@ -991,6 +1557,14 @@
       },
       "ProductResponse": {
         "properties": {
+          "categorias": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CategoriaRef"
+            },
+            "title": "Categorias",
+            "type": "array"
+          },
           "created_at": {
             "anyOf": [
               {
@@ -1472,6 +2046,107 @@
         "title": "UsuarioActivoUpdate",
         "type": "object"
       },
+      "UsuarioCreadoResponse": {
+        "properties": {
+          "activo": {
+            "title": "Activo",
+            "type": "boolean"
+          },
+          "apellido": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apellido"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid4",
+            "title": "Id",
+            "type": "string"
+          },
+          "nombre": {
+            "title": "Nombre",
+            "type": "string"
+          },
+          "roles": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoleResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "activo",
+          "created_at",
+          "email"
+        ],
+        "title": "UsuarioCreadoResponse",
+        "type": "object"
+      },
+      "UsuarioCreate": {
+        "properties": {
+          "apellido": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apellido"
+          },
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "nombre": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Nombre",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 72,
+            "minLength": 8,
+            "title": "Password",
+            "type": "string"
+          },
+          "rol_id": {
+            "title": "Rol Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "email",
+          "password",
+          "nombre",
+          "rol_id"
+        ],
+        "title": "UsuarioCreate",
+        "type": "object"
+      },
       "UsuarioRef": {
         "properties": {
           "id": {
@@ -1944,6 +2619,14 @@
             "title": "Descuento Aplicado",
             "type": "number"
           },
+          "devoluciones": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DevolucionResponse"
+            },
+            "title": "Devoluciones",
+            "type": "array"
+          },
           "estado": {
             "title": "Estado",
             "type": "string"
@@ -1991,6 +2674,11 @@
             "title": "Total Costo",
             "type": "number"
           },
+          "total_devuelto": {
+            "default": 0,
+            "title": "Total Devuelto",
+            "type": "number"
+          },
           "usuario": {
             "anyOf": [
               {
@@ -2021,6 +2709,11 @@
         "properties": {
           "cantidad": {
             "title": "Cantidad",
+            "type": "integer"
+          },
+          "cantidad_devuelta": {
+            "default": 0,
+            "title": "Cantidad Devuelta",
             "type": "integer"
           },
           "color": {
@@ -2100,6 +2793,11 @@
         "properties": {
           "cantidad": {
             "title": "Cantidad",
+            "type": "integer"
+          },
+          "cantidad_devuelta": {
+            "default": 0,
+            "title": "Cantidad Devuelta",
             "type": "integer"
           },
           "color": {
@@ -2224,6 +2922,14 @@
             "title": "Descuento Aplicado",
             "type": "number"
           },
+          "devoluciones": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DevolucionResponse"
+            },
+            "title": "Devoluciones",
+            "type": "array"
+          },
           "estado": {
             "title": "Estado",
             "type": "string"
@@ -2267,6 +2973,11 @@
             "title": "Total",
             "type": "number"
           },
+          "total_devuelto": {
+            "default": 0,
+            "title": "Total Devuelto",
+            "type": "number"
+          },
           "usuario": {
             "anyOf": [
               {
@@ -2294,9 +3005,19 @@
       },
       "VentaDia": {
         "properties": {
+          "bruto": {
+            "default": 0,
+            "title": "Bruto",
+            "type": "number"
+          },
           "cantidad_ventas": {
             "title": "Cantidad Ventas",
             "type": "integer"
+          },
+          "devoluciones": {
+            "default": 0,
+            "title": "Devoluciones",
+            "type": "number"
           },
           "fecha": {
             "format": "date",
@@ -2394,6 +3115,11 @@
           },
           "total": {
             "title": "Total",
+            "type": "number"
+          },
+          "total_devuelto": {
+            "default": 0,
+            "title": "Total Devuelto",
             "type": "number"
           },
           "usuario": {
@@ -2497,6 +3223,16 @@
             "title": "Cantidad Operaciones",
             "type": "integer"
           },
+          "total_bruto": {
+            "default": 0,
+            "title": "Total Bruto",
+            "type": "number"
+          },
+          "total_devoluciones": {
+            "default": 0,
+            "title": "Total Devoluciones",
+            "type": "number"
+          },
           "total_ingresos": {
             "title": "Total Ingresos",
             "type": "number"
@@ -2545,6 +3281,152 @@
           }
         },
         "summary": "Root"
+      }
+    },
+    "/api/v1/auditoria/": {
+      "get": {
+        "operationId": "listar_auditoria_api_v1_auditoria__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "desde",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Desde"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hasta",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hasta"
+            }
+          },
+          {
+            "in": "query",
+            "name": "evento",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Evento"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entidad",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Entidad"
+            }
+          },
+          {
+            "in": "query",
+            "name": "usuario_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Usuario Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditLogListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Listar Auditoria",
+        "tags": [
+          "Auditoría"
+        ]
       }
     },
     "/api/v1/caja/apertura": {
@@ -3436,6 +4318,76 @@
         ]
       }
     },
+    "/api/v1/configuracion/": {
+      "get": {
+        "operationId": "get_configuracion_api_v1_configuracion__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfiguracionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Configuracion",
+        "tags": [
+          "Configuración"
+        ]
+      },
+      "patch": {
+        "operationId": "update_configuracion_api_v1_configuracion__patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfiguracionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfiguracionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Configuracion",
+        "tags": [
+          "Configuración"
+        ]
+      }
+    },
     "/api/v1/productos/": {
       "get": {
         "operationId": "get_products_api_v1_productos__get",
@@ -3626,6 +4578,32 @@
           }
         ],
         "summary": "Get Product By Sku",
+        "tags": [
+          "Productos"
+        ]
+      }
+    },
+    "/api/v1/productos/stock-bajo": {
+      "get": {
+        "operationId": "get_low_stock_api_v1_productos_stock_bajo_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LowStockResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Low Stock",
         "tags": [
           "Productos"
         ]
@@ -3956,6 +4934,64 @@
         ]
       }
     },
+    "/api/v1/productos/{id}/categorias": {
+      "put": {
+        "operationId": "set_product_categories_api_v1_productos__id__categorias_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductCategoriesUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Product Categories",
+        "tags": [
+          "Productos"
+        ]
+      }
+    },
     "/api/v1/reportes/cajas": {
       "get": {
         "operationId": "obtener_reporte_cajas_api_v1_reportes_cajas_get",
@@ -4227,6 +5263,50 @@
           }
         ],
         "summary": "Get Usuarios",
+        "tags": [
+          "Usuarios"
+        ]
+      },
+      "post": {
+        "operationId": "create_usuario_api_v1_usuarios__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsuarioCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioCreadoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Usuario",
         "tags": [
           "Usuarios"
         ]
@@ -4775,6 +5855,64 @@
           }
         ],
         "summary": "Anular Venta",
+        "tags": [
+          "Ventas"
+        ]
+      }
+    },
+    "/api/v1/ventas/{id}/devoluciones": {
+      "post": {
+        "operationId": "devolver_venta_api_v1_ventas__id__devoluciones_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevolucionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VentaDetalleAdminResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Devolver Venta",
         "tags": [
           "Ventas"
         ]
