@@ -54,13 +54,24 @@ PAYMENT_TERMINAL=fake
 | `ENVIRONMENT` | No | `development` | Nombre del entorno. |
 | `CORS_ORIGINS` | No | `http://localhost:3000` | Orígenes permitidos, separados por coma. Se expone como lista en `settings.cors_origins_list`. |
 | `LOG_LEVEL` | No | `INFO` | Nivel del logging estándar configurado en `main.py`. |
-| `PAYMENT_TERMINAL` | No | `fake` | Adaptador del terminal de pago (`app/integrations/payment_terminal/factory.py`): `fake` o `clover` (este último lanza `NotImplementedError` hasta la etapa C). |
+| `PAYMENT_TERMINAL` | No | `fake` | Adaptador del terminal de pago: `fake` (simulado) o `clover` (Clover Cloud Pay Display). Con `clover` son obligatorias `CLOVER_APP_ID`, `CLOVER_APP_SECRET` y `CLOVER_TOKEN_KEY`. |
+| `CLOVER_ENV` | No | `sandbox` | `sandbox` o `production` (región LATAM). Define los hosts de Clover. |
+| `CLOVER_APP_ID` | Con `clover` | — | App ID de la app en el portal de desarrolladores de Clover. |
+| `CLOVER_APP_SECRET` | Con `clover` | — | App Secret. Secreto: nunca se versiona ni se loguea. |
+| `CLOVER_TOKEN_KEY` | Con `clover` | — | Clave Fernet que cifra los tokens OAuth guardados en la base (y firma el `state` de OAuth). Secreto. Se genera con `.venv\Scripts\python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. |
+| `CLOVER_REDIRECT_URI` | No | `http://localhost:8001/api/v1/integraciones/clover/callback` | URL del callback de OAuth. Debe apuntar a este backend y estar registrada en la app de Clover. |
+| `CLOVER_OAUTH_URL` | No | según `CLOVER_ENV` | Host de la página de autorización (`https://sandbox.dev.clover.com` / `https://www.la.clover.com`). |
+| `CLOVER_API_URL` | No | según `CLOVER_ENV` | Host del canje y la renovación de tokens (`https://apisandbox.dev.clover.com` / `https://api.la.clover.com`). |
+| `CLOVER_CONNECT_URL` | No | `<CLOVER_API_URL>/connect` | Base de Cloud Pay Display. La de producción LATAM no está documentada por Clover: confirmarla con Fiserv y definirla acá. |
+| `CLOVER_POS_ID` | No | `mundo-uniforme-pos` | Header `X-POS-Id` cuando la integración no tiene `pos_id` guardado. |
+| `FRONTEND_URL` | No | `http://localhost:3000` | URL del POS: a dónde vuelve el navegador después del callback de OAuth. |
 | `PAYMENT_FAKE_DELAY_SECONDS` | No | `3` | Segundos que `FakeTerminal` espera antes de aprobar (simula al cliente pagando). |
 | `PAYMENT_RECONCILE_INTERVAL_SECONDS` | No | `60` | Intervalo del barrido de cobros sin resolver (corre también al iniciar). `0` lo desactiva (así corren los tests). |
 | `PAYMENT_STALE_SECONDS` | No | `180` | Un cobro `pendiente`/`enviado`/`aprobado` sin cambios durante este tiempo se considera huérfano (timeout del cobro + margen). |
 | `PAYMENT_RECONCILE_MAX_ATTEMPTS` | No | `10` | Intentos del barrido por cobro; después queda para revisión del admin. |
 | `PAYMENT_RECONCILE_BACKOFF` | No | `2,5,10` | Esperas en segundos (separadas por coma) entre las consultas de la conciliación inmediata. Se expone como `settings.payment_reconcile_backoff`. |
 
+> Los secretos de Clover no tienen default y se declaran como `SecretStr`; `Settings` usa `hide_input_in_errors=True` para que un error de validación al arrancar nunca muestre los valores. `settings.clover_oauth_url`, `clover_api_url` y `clover_connect_url` devuelven el override o el host derivado de `CLOVER_ENV`; `APP_VERSION` (`config.py`) es la versión de la API y del `User-Agent` enviado a Clover.
 > `JWT_SECRET` fue eliminado: no se usaba, la validación del token la hace Supabase Auth (ver Autenticación).
 > Las variables de entorno tienen prioridad sobre `.env`; los tests y CI usan valores ficticios y no requieren un `.env` real.
 
@@ -91,14 +102,22 @@ app/
 │           ├── usuarios.py        # Rutas de usuarios y roles (incluye el alta)
 │           ├── configuracion.py   # Configuración del negocio (lectura: todos; edición: admin)
 │           ├── auditoria.py       # Visor de la tabla `logs` (solo admin)
-│           └── pagos.py           # Cobros con terminal (`/pagos`) y estado de la integración (`/integraciones/terminal`)
+│           ├── pagos.py           # Cobros con terminal (`/pagos`) y estado de la integración (`/integraciones/terminal`)
+│           └── clover.py          # OAuth de Clover (`/integraciones/clover/conectar | callback | desconectar`)
 ├── integrations/
-│   └── payment_terminal/
-│       ├── port.py                # Puerto PaymentTerminal + ChargeRequest/ChargeResult/RefundResult + errores del terminal
-│       ├── fake.py                # FakeTerminal: adaptador en memoria, con guion para tests y reglas por centavos para desarrollo
-│       └── factory.py             # get_terminal(): elige el adaptador según PAYMENT_TERMINAL
+│   ├── payment_terminal/
+│   │   ├── port.py                # Puerto PaymentTerminal + ChargeRequest/ChargeResult/RefundResult + errores del terminal
+│   │   ├── fake.py                # FakeTerminal: adaptador en memoria, con guion para tests y reglas por centavos para desarrollo
+│   │   └── factory.py             # get_terminal(): elige el adaptador según PAYMENT_TERMINAL
+│   └── clover/
+│       ├── cloud_terminal.py      # CloverCloudTerminal: adaptador Cloud Pay Display del puerto (httpx, headers, mapeo de códigos)
+│       ├── oauth.py               # CloverOAuthClient (authorize URL, canje, refresh) + state firmado (sign_state / verify_state)
+│       ├── tokens.py              # TokenCipher (Fernet) + CloverTokenProvider (renovación con lock + compare-and-set)
+│       ├── connection.py          # CloverConnection: conectar / callback / desconectar
+│       └── wiring.py              # Arma el adaptador y sus colaboradores desde settings
 ├── repositories/
-│   └── supabase_pago_store.py     # Adaptador Supabase del puerto PagoStore (pagos_externos, integracion_terminal, cotizar/registrar)
+│   ├── supabase_pago_store.py     # Adaptador Supabase del puerto PagoStore (pagos_externos, integracion_terminal, cotizar/registrar)
+│   └── supabase_clover_store.py   # Columnas OAuth de integracion_terminal: tokens cifrados, compare-and-set, conectar / desconectar
 ├── schemas/
 │   ├── productos.py               # Pydantic models: ProductCreate/Update/Response, VariantCreate/Update/Response, StockUpdate, StockMovementResponse/ListResponse (kardex)
 │   ├── caja.py                    # Pydantic models: CajaApertura, CajaMovimiento, CajaCierre, SesionCajaResponse, CajaMovimientoResponse, CajaResumenResponse
@@ -137,6 +156,11 @@ tests/
 ├── test_cors.py                   # Preflight CORS (origen permitido / desconocido)
 ├── fakes_pagos.py                 # InMemoryPagoStore: implementación en memoria del puerto PagoStore (CAS de estado, un cobro activo, registro idempotente)
 ├── test_fake_terminal.py          # FakeTerminal (guion, reglas por centavos, cancelación, ocupado) y factory
+├── fakes_clover.py                # InMemoryCloverStore (fila de integración con CAS) y ScriptedOAuth
+├── test_clover_terminal.py        # CloverCloudTerminal con httpx.MockTransport: headers, centavos, idempotencia, mapeo de códigos, 401 → refresh → reintento
+├── test_clover_tokens.py          # Cifrado, renovación, refresh de un solo uso (CAS), fallas que deshabilitan, y el store de Supabase
+├── test_clover_oauth.py           # State firmado, endpoints de token, conectar / callback / desconectar (HTTP), settings de Clover
+├── test_clover_sandbox_live.py    # Suite opcional contra el sandbox (`CLOVER_SANDBOX_LIVE=1 pytest -m clover_sandbox`); excluida por defecto
 ├── test_pago_service.py           # PagoService con FakeTerminal: aprobado, rechazado, cancelado, ocupado, conciliación inmediata, barrido, reembolso, idempotencia
 ├── test_pago_store.py             # Adaptador Supabase de PagoStore: consultas, transición condicional y mapeo de errores
 ├── test_pagos.py                  # Endpoints /pagos e /integraciones/terminal (roles, dueño, 202, polling), MU011 y lifespan del barrido
@@ -158,7 +182,7 @@ tests/
 openapi.json                       # Esquema OpenAPI versionado (se regenera con `python scripts/export_openapi.py`)
 pyproject.toml                     # Configuración de ruff y pytest
 requirements.txt                   # Dependencias de ejecución (versiones fijadas)
-requirements-dev.txt               # requirements.txt + pytest, httpx, ruff
+requirements-dev.txt               # requirements.txt + pytest, ruff
 README.md                          # Instalación, ejecución, tests y lint
 ```
 
@@ -203,6 +227,8 @@ Los roles salen de `perfiles.rol_id → roles.nombre` (`admin`, `empleado`). ✅
 | Pagos | `POST /pagos/terminal`, `GET /integraciones/terminal` | ✅ | ✅ |
 | Pagos | `GET /pagos/{id}`, `POST /pagos/{id}/cancelar` | ✅ **solo los propios** (404 si es de otro) | ✅ cualquiera |
 | Pagos | `GET /pagos/`, `POST /pagos/{id}/conciliar`, `PATCH /integraciones/terminal` | 🔒 | ✅ |
+| Clover | `GET /integraciones/clover/conectar`, `POST /integraciones/clover/desconectar` | 🔒 | ✅ |
+| Clover | `GET /integraciones/clover/callback` | sin token: lo autentica el `state` firmado (ver "Clover") | — |
 
 Un rol distinto de `admin` (o un usuario sin perfil) se trata como `empleado`.
 
@@ -232,7 +258,7 @@ audit(background_tasks, current_user, "CREATE", "productos", entidad_id=..., pay
 
 - Encola `LogService.registrar_log()` como `BackgroundTask`; ese método inserta en la tabla `logs` (evento, entidad, entidad_id, payload, usuario_id, estado). Si el insert falla, solo se loguea el error y no afecta la respuesta.
 - `payload` y `respuesta` se pasan por `jsonable_encoder`: UUID, datetime y Decimal se serializan solos, así que se puede pasar `model_dump()` o la fila de la base tal cual.
-- `evento` es un `AuditEvent` (`Literal`): `CREATE`, `UPDATE`, `DELETE`, `ADJUST_STOCK`, `OPEN_CAJA`, `CLOSE_CAJA`, `CASH_MOVEMENT`, `CREATE_SALE`, `CANCEL_SALE`, `RETURN_SALE`, `UPDATE_ROL`, `UPDATE_ACTIVO`, y los de cobros con terminal: `CHARGE_STARTED`, `CHARGE_APPROVED`, `CHARGE_FAILED`, `CHARGE_UNKNOWN`, `CHARGE_CANCELLED`, `REFUND_DONE`, `TERMINAL_SETTINGS`. El tipo de entidad va en `entidad` (tabla afectada).
+- `evento` es un `AuditEvent` (`Literal`): `CREATE`, `UPDATE`, `DELETE`, `ADJUST_STOCK`, `OPEN_CAJA`, `CLOSE_CAJA`, `CASH_MOVEMENT`, `CREATE_SALE`, `CANCEL_SALE`, `RETURN_SALE`, `UPDATE_ROL`, `UPDATE_ACTIVO`, y los de cobros con terminal: `CHARGE_STARTED`, `CHARGE_APPROVED`, `CHARGE_FAILED`, `CHARGE_UNKNOWN`, `CHARGE_CANCELLED`, `REFUND_DONE`, `TERMINAL_SETTINGS`, y los de la cuenta de Clover: `CLOVER_CONNECTED`, `CLOVER_DISCONNECTED`. El tipo de entidad va en `entidad` (tabla afectada).
 - `record_audit(usuario_id, evento, entidad, ...)` escribe el mismo registro **en el acto**, para código que corre fuera de un request (la tarea del cobro y el barrido), donde no hay `BackgroundTasks`. Nunca lanza.
 - Los eventos antiguos se renombraron: `UPDATE_STOCK` → `ADJUST_STOCK`, `APERTURA_CAJA` → `OPEN_CAJA`, `CIERRE_CAJA` → `CLOSE_CAJA`, `MOVIMIENTO_CAJA` → `CASH_MOVEMENT`, `CREATE_VENTA` → `CREATE_SALE`. El resto (`CREATE`, `UPDATE`, `DELETE`, `UPDATE_ROL`, `UPDATE_ACTIVO`) se mantiene. Las filas históricas de `logs` conservan el nombre viejo.
 
@@ -555,7 +581,7 @@ Fila única (`id = 1`, `CHECK (id = 1)`); se insertó a mano (`supabase/data-fix
 | `proveedor` | text | not null: `fake` \| `clover`. Refleja `PAYMENT_TERMINAL` (se actualiza en cada `PATCH`); el adaptador real lo decide la variable de entorno |
 | `habilitado` | boolean | not null, default `false` |
 | `merchant_id`, `device_id`, `pos_id` | text | nullable |
-| `access_token_cifrado`, `refresh_token_cifrado`, `access_expira_at` | text / timestamptz | OAuth de Clover (etapa C); la API no los expone |
+| `access_token_cifrado`, `refresh_token_cifrado`, `access_expira_at` | text / timestamptz | OAuth de Clover: tokens cifrados con Fernet (`CLOVER_TOKEN_KEY`) y vencimiento del access token. La API nunca los expone |
 | `updated_at` | timestamptz | `now()` |
 | `updated_by` | uuid | nullable, FK → `perfiles.id` |
 
@@ -1029,7 +1055,7 @@ Todos los endpoints de reportes aceptan `?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY
 
 ### 💳 Pagos con terminal — `/api/v1/pagos` e `/api/v1/integraciones/terminal`
 
-Cobros con tarjeta / QR en un terminal de pago (etapa B del [plan](docs/design/plan-implementacion-clover.md): núcleo con terminal simulado; Clover se enchufa en la etapa C). El efectivo no cambia y `POST /ventas/` sigue funcionando igual: mientras la integración esté deshabilitada, el POS cobra Tarjeta/QR como siempre.
+Cobros con tarjeta / QR en un terminal de pago ([plan](docs/design/plan-implementacion-clover.md): etapa B = núcleo con terminal simulado; etapa C = adaptador de Clover y OAuth, ver "Clover" más abajo). El efectivo no cambia y `POST /ventas/` sigue funcionando igual: mientras la integración esté deshabilitada, el POS cobra Tarjeta/QR como siempre.
 
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
@@ -1038,8 +1064,11 @@ Cobros con tarjeta / QR en un terminal de pago (etapa B del [plan](docs/design/p
 | POST | `/pagos/{id}/cancelar` | ✅ quien lo inició o admin | Cancela un cobro en curso; devuelve el pago |
 | GET | `/pagos/?estado=&limit=&offset=` | 🔒 | Listado para revisión (`indeterminado`, `error_registro`, ...) → `{ items, total }` |
 | POST | `/pagos/{id}/conciliar` | 🔒 | Fuerza la conciliación de un cobro ahora |
-| GET | `/integraciones/terminal` | ✅ | `{ proveedor, habilitado, conectado }` para que el POS elija el flujo |
+| GET | `/integraciones/terminal` | ✅ | `{ proveedor, habilitado, conectado, conectado_oauth }` para que el POS elija el flujo. Es también el "Probar conexión" |
 | PATCH | `/integraciones/terminal` | 🔒 | Habilita / deshabilita y guarda los datos del dispositivo |
+| GET | `/integraciones/clover/conectar` | 🔒 | `{ authorize_url }`: página de Clover a la que el POS manda el navegador del admin |
+| GET | `/integraciones/clover/callback?code=&merchant_id=&state=` | sin token | Canjea el código y redirige (302) a `{FRONTEND_URL}/dashboard/settings?clover=ok` o `?clover=error&motivo=` |
+| POST | `/integraciones/clover/desconectar` | 🔒 | Borra los tokens y deshabilita la integración → `{ conectado_oauth: false, habilitado: false }` |
 
 ```python
 # CobroTerminalCreate (POST /pagos/terminal): mismo body que POST /ventas/, pero metodo_pago solo "Tarjeta" | "QR"
@@ -1055,7 +1084,9 @@ Cobros con tarjeta / QR en un terminal de pago (etapa B del [plan](docs/design/p
 
 # TerminalIntegracionResponse (GET y PATCH /integraciones/terminal)
 { proveedor: "fake" | "clover", habilitado: bool, conectado: bool,
-  device_id?, pos_id?, updated_at? }   # estos tres solo se completan para admin
+  conectado_oauth: bool,               # hay tokens de la cuenta del proveedor (siempre false con `fake`)
+  merchant_id?, device_id?, pos_id?, updated_at? }   # estos cuatro solo se completan para admin
+# `conectado` = ping al dispositivo. Con Clover solo se intenta si `conectado_oauth` es true.
 
 # TerminalIntegracionUpdate (PATCH): todos opcionales, al menos uno; texto vacío = null
 { habilitado?: bool, device_id?: str (<= 64), pos_id?: str (<= 64) }
@@ -1072,6 +1103,8 @@ Cobros con tarjeta / QR en un terminal de pago (etapa B del [plan](docs/design/p
 | `metodo_pago: "Efectivo"` u otro body inválido | 422 | validación |
 | Pago inexistente o de otro usuario (no admin) | 404 | `Pago no encontrado` |
 | El terminal no responde al cancelar | 503 | `No se pudo cancelar el cobro en el terminal` |
+| `PATCH` con `habilitado: true` y Clover sin cuenta conectada | 409 | `Conectá la cuenta del terminal antes de habilitarlo` |
+| `conectar` / `desconectar` con `PAYMENT_TERMINAL` distinto de `clover` | 409 | `Clover no es el terminal configurado (PAYMENT_TERMINAL)` |
 
 **Estados de `pagos_externos.estado`**
 
@@ -1089,9 +1122,9 @@ Transiciones: `pendiente → enviado → aprobado → venta_registrada`; `aproba
 
 **Arquitectura (hexagonal)**
 
-- **Puerto del terminal** — `app/integrations/payment_terminal/port.py`: `PaymentTerminal` (`ping`, `status`, `charge`, `find_by_external_id`, `cancel_current`, `refund`, `show_welcome`), `ChargeRequest`, `ChargeResult` (`APPROVED | DECLINED | CANCELLED | UNKNOWN`), `RefundResult`, y los errores `TerminalBusy`, `TerminalUnavailable`, `TerminalBadRequest`. Montos en centavos. Adaptadores: `fake.py` (`FakeTerminal`); `factory.py::get_terminal()` elige según `PAYMENT_TERMINAL`.
+- **Puerto del terminal** — `app/integrations/payment_terminal/port.py`: `PaymentTerminal` (`ping`, `status`, `charge`, `find_by_external_id`, `cancel_current`, `refund`, `show_welcome`), `ChargeRequest`, `ChargeResult` (`APPROVED | DECLINED | CANCELLED | UNKNOWN`), `RefundResult`, y los errores `TerminalBusy`, `TerminalUnavailable`, `TerminalBadRequest`. Montos en centavos. Adaptadores: `fake.py` (`FakeTerminal`) y `app/integrations/clover/cloud_terminal.py` (`CloverCloudTerminal`); `factory.py::get_terminal()` elige según `PAYMENT_TERMINAL`.
 - **Puerto de persistencia** — `app/services/pago_ports.py`: `PagoStore` (+ `ActiveChargeExists`, `SaleRejected`). Adaptador: `app/repositories/supabase_pago_store.py`.
-- **Aplicación** — `app/services/pago_service.py::PagoService` (instanciable, sin `@staticmethod`): solo conoce los dos puertos. No importa `supabase` ni nada de un proveedor.
+- **Aplicación** — `app/services/pago_service.py::PagoService` (instanciable, sin `@staticmethod`): solo conoce los dos puertos. No importa `supabase` ni nada de un proveedor: de Clover solo sabe, por el flag genérico `requires_oauth`, que el proveedor necesita una cuenta conectada (tokens en la fila de integración) antes de hacer ping o habilitarse.
 - **Composición** — `app/api/deps.py::get_pago_service()` arma el servicio una vez por proceso; los endpoints lo reciben con `Depends` (los tests lo reemplazan con `app.dependency_overrides`).
 
 **Cómo corre**
@@ -1122,6 +1155,64 @@ Transiciones: `pendiente → enviado → aprobado → venta_registrada`; `aproba
    - total terminado en **`.99`** → **indeterminado**: las 3 primeras consultas siguen sin respuesta, así que queda para el barrido (o para `POST /pagos/{id}/conciliar`), que lo aprueba y registra la venta;
    - `POST /pagos/{id}/cancelar` durante la espera → **cancelado**.
 4. El estado del terminal simulado vive en memoria del proceso: usar un solo worker de uvicorn en desarrollo.
+
+#### Clover (`PAYMENT_TERMINAL=clover`)
+
+Adaptador **Cloud Pay Display**: backend → API cloud de Clover (`<CLOVER_CONNECT_URL>/v1/...`, OAuth v2) → dispositivo. Todo vive en `app/integrations/clover/` y `app/repositories/supabase_clover_store.py`; `PagoService` no cambia.
+
+**Puesta en marcha (sandbox)**
+
+1. Generar `CLOVER_TOKEN_KEY`: `.venv\Scripts\python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+2. `.env`: `PAYMENT_TERMINAL=clover`, `CLOVER_ENV=sandbox`, `CLOVER_APP_ID`, `CLOVER_APP_SECRET`, `CLOVER_TOKEN_KEY`.
+3. Registrar en la app de Clover la URL de redirección `http://localhost:8001/api/v1/integraciones/clover/callback` (= `CLOVER_REDIRECT_URI`; el backend debe escuchar en ese puerto).
+4. Como admin, en el POS: Configuración → conectar Clover (`GET /integraciones/clover/conectar` → abrir `authorize_url`).
+5. Guardar la serie del dispositivo (`PATCH /integraciones/terminal { device_id }`).
+6. "Probar conexión": `GET /integraciones/terminal` → `conectado_oauth: true` y `conectado: true`. Después, `PATCH { habilitado: true }`.
+
+**OAuth** (`oauth.py`, `connection.py`)
+
+- `conectar` arma `<oauth host>/oauth/v2/authorize?client_id=&redirect_uri=&response_type=code&state=`. El `state` es `base64url(payload).base64url(HMAC-SHA256)` con `{u: id del admin, e: vencimiento (10 min), n: nonce}`; la clave del HMAC se deriva de `CLOVER_TOKEN_KEY`. No hay tabla nueva.
+- `callback` no lleva bearer (es un redirect del navegador): valida el `state`, verifica que ese usuario siga siendo admin activo, canjea el código (`POST <api host>/oauth/v2/token` con JSON `{client_id, client_secret, code}`), guarda los tokens **cifrados** + `merchant_id` + `access_expira_at` + `proveedor = 'clover'` y audita `CLOVER_CONNECTED`. No cambia `habilitado`. Siempre responde 302 al POS; `motivo` es uno de: `state_invalido`, `state_expirado`, `parametros`, `sin_permiso`, `codigo_rechazado`, `clover_no_disponible`, `sin_integracion`, `no_configurado`, `error_interno`.
+- `desconectar` pone en null los tokens y `merchant_id`, `habilitado = false` y audita `CLOVER_DISCONNECTED` (no revoca nada del lado de Clover).
+
+**Tokens** (`tokens.py`)
+
+- `CloverTokenProvider.get_access_token()` lee la fila en cada llamada y renueva si el access token vence en 5 minutos o menos (`POST <api host>/oauth/v2/refresh` con `{client_id, refresh_token}`).
+- El refresh token es de **un solo uso**: dentro del proceso las renovaciones van con un lock; entre procesos, el par nuevo se guarda con un compare-and-set sobre `refresh_token_cifrado` (`update ... where refresh_token_cifrado = <el gastado>`). Quien pierde relee la fila y usa lo que guardó el otro; lo mismo si Clover rechaza un refresh token que otro proceso acaba de gastar.
+- Si Clover **rechaza** la renovación (o los tokens no se pueden descifrar con la clave actual): `habilitado = false` y `TerminalUnavailable("Reconectá Clover desde Configuración")`. Si Clover no responde (red, 5xx) solo se informa el error y se reintenta en la próxima llamada.
+- Los tokens, el secreto y los códigos nunca se loguean ni van a la auditoría.
+
+**Adaptador** (`cloud_terminal.py`)
+
+- Headers en cada llamada: `Authorization: Bearer`, `X-Clover-Device-Id` (`device_id` de la fila), `X-POS-Id` (`pos_id` de la fila o `CLOVER_POS_ID`), `User-Agent: MundoUniformePOS/<versión>`, `X-Clover-Timeout`; en los POST de cobro y reembolso, `Idempotency-Key` (cobro: el `external_payment_id`; reembolso: `refund-<payment_id>-<centavos|full>`). Cliente `httpx` propio, HTTP/1.1.
+
+| Operación | Llamada | Timeout (Clover / HTTP) |
+|---|---|---|
+| `charge` | `POST /v1/payments` `{amount (centavos), externalPaymentId, final: true}` | 120 s / 150 s |
+| `find_by_external_id` | `GET /v1/payments/external/{id}` | 15 s / 25 s |
+| `refund` | `POST /v1/payments/{id}/refunds` `{fullRefund: true}` o `{amount}` | 60 s / 75 s |
+| `cancel_current` | `POST /v1/device/cancel` | 10 s / 15 s |
+| `status` | `GET /v1/device/status` | 10 s / 15 s |
+| `show_welcome` | `POST /v1/device/welcome` (los 4xx se ignoran) | 10 s / 15 s |
+| `ping` | `GET /v1/device/ping` → `connected` (503 = ocupado = conectado) | — / 5 s |
+
+| Respuesta | Cobro | Resto |
+|---|---|---|
+| 200 | `payment.result`: `SUCCESS` → aprobado; `FAIL` / `VOIDED` → rechazado; cualquier otro (o sin `payment`) → desconocido | resultado |
+| 209 | cancelado | reembolso: fallido |
+| 400 | `TerminalBadRequest` (no se cobró) | `TerminalBadRequest` |
+| 401 | se renueva el token y se reintenta **una** vez (misma `Idempotency-Key`); si vuelve a fallar, `TerminalUnavailable` | igual |
+| 503 | `TerminalBusy` (no se cobró) | `TerminalBusy` (reembolso) / ocupado |
+| 500, 504, otros códigos, timeout, corte de red | **desconocido** → conciliación; nunca se reintenta el cobro | `TerminalUnavailable` (reembolso: desconocido) |
+
+- `find_by_external_id` devuelve `None` **solo** ante un "no existe" definitivo (404, o 400 cuyo `message` dice "not found"); cualquier falla transitoria lanza `TerminalUnavailable`, porque el servicio rechaza un cobro vencido cuando el terminal contesta que no lo conoce. Clover no documenta cómo informa un pago inexistente: el test `test_unknown_external_id_is_a_definitive_not_found` de la suite de sandbox lo verifica.
+- De la tarjeta solo se leen marca (`cardType`), últimos 4, `authCode` y `entryType`; las cuotas se buscan en cualquier clave `*installments*` / `*cuotas*` de la respuesta. La respuesta guardada no incluye `first6`, titular, tokens ni vencimiento, y nada del cuerpo se loguea.
+- Sin serie de dispositivo no se envía nada (`TerminalBadRequest`: el cobro queda `rechazado`).
+
+**Verificado en la documentación de Clover vs. supuesto**
+
+- Verificado: hosts de OAuth por entorno (sandbox: `sandbox.dev.clover.com` / `apisandbox.dev.clover.com`; LATAM: `www.la.clover.com` / `api.la.clover.com`), cuerpos y respuesta de `/oauth/v2/token` y `/oauth/v2/refresh`, refresh token de un solo uso, rutas, headers, cuerpos, respuestas y códigos HTTP de las siete operaciones de arriba (base sandbox `https://apisandbox.dev.clover.com/connect`).
+- Supuesto (confirmar en sandbox / con Fiserv): la base de Cloud Pay Display en producción LATAM (`https://api.la.clover.com/connect`, por eso existe `CLOVER_CONNECT_URL`); que las expiraciones vienen en segundos (se aceptan milisegundos); la forma del "pago no encontrado"; dónde vuelven las cuotas; que `VOIDED` equivale a no cobrado; y que Clover devuelve `state` y `merchant_id` juntos en el callback (`merchant_id` es opcional para nosotros).
 
 ---
 
@@ -1174,7 +1265,9 @@ Query params (todos opcionales): `desde`, `hasta` (fechas locales de Argentina, 
 | 23 | `usuario_service.py` | ℹ️ Menor | La verificación del último administrador activo no es atómica (lectura + escritura). |
 | 24 | base de datos | ℹ️ Pendiente | Las funciones `crear_venta`, `ajustar_stock` y `finalizar_cierre_caja` quedaron obsoletas y siguen en la base hasta que se haga el `DROP`. |
 | 25 | `pago_service.py` | ℹ️ Pendiente (etapa D) | Anular o devolver una venta cobrada con el terminal todavía **no reembolsa** en el dispositivo: `anular_venta` / `registrar_devolucion` solo actualizan la base. |
-| 26 | `integrations/payment_terminal` | ℹ️ Pendiente (etapa C) | Solo existe el adaptador `fake`; `PAYMENT_TERMINAL=clover` lanza `NotImplementedError`. El estado de `FakeTerminal` es por proceso (un solo worker en desarrollo). |
+| 26 | `integrations/payment_terminal` | ✅ **Resuelto** (etapa C) | Existe el adaptador `CloverCloudTerminal` (`PAYMENT_TERMINAL=clover`). El estado de `FakeTerminal` sigue siendo por proceso (un solo worker en desarrollo). |
+| 27 | `integrations/clover` | ℹ️ Pendiente | Falta validarlo contra el sandbox real (suite `clover_sandbox`). La URL cloud de producción LATAM es un supuesto (`CLOVER_CONNECT_URL`). No se usa el endpoint `/oauth/v2/recovery`: si se pierde un refresh token hay que reconectar. |
+| 28 | `integrations/clover` | ℹ️ Menor | El `state` de OAuth no es de un solo uso (no hay tabla): es válido 10 minutos; el código de Clover sí es de un solo uso. `GET /integraciones/terminal` hace un ping a Clover en cada consulta (sin cache). Un 401 persistente durante un cobro lo deja `indeterminado` hasta que se reconecte y se concilie. |
 
 ---
 
@@ -1192,6 +1285,9 @@ pip install -r requirements-dev.txt
 
 # Tests (no usan la red ni requieren un .env real)
 pytest -q
+
+# Suite opcional contra el sandbox de Clover (usa el .env real; no corre por defecto ni en CI)
+CLOVER_SANDBOX_LIVE=1 pytest -m clover_sandbox
 
 # Lint
 ruff check .

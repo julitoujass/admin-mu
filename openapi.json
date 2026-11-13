@@ -837,6 +837,37 @@
         "title": "ClienteUpdate",
         "type": "object"
       },
+      "CloverConectarResponse": {
+        "properties": {
+          "authorize_url": {
+            "title": "Authorize Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorize_url"
+        ],
+        "title": "CloverConectarResponse",
+        "type": "object"
+      },
+      "CloverDesconectarResponse": {
+        "properties": {
+          "conectado_oauth": {
+            "title": "Conectado Oauth",
+            "type": "boolean"
+          },
+          "habilitado": {
+            "title": "Habilitado",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "conectado_oauth",
+          "habilitado"
+        ],
+        "title": "CloverDesconectarResponse",
+        "type": "object"
+      },
       "CobroIniciadoResponse": {
         "properties": {
           "estado": {
@@ -2493,6 +2524,11 @@
             "title": "Conectado",
             "type": "boolean"
           },
+          "conectado_oauth": {
+            "default": false,
+            "title": "Conectado Oauth",
+            "type": "boolean"
+          },
           "device_id": {
             "anyOf": [
               {
@@ -2507,6 +2543,17 @@
           "habilitado": {
             "title": "Habilitado",
             "type": "boolean"
+          },
+          "merchant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merchant Id"
           },
           "pos_id": {
             "anyOf": [
@@ -4958,6 +5005,134 @@
         "summary": "Update Configuracion",
         "tags": [
           "Configuración"
+        ]
+      }
+    },
+    "/api/v1/integraciones/clover/callback": {
+      "get": {
+        "description": "Where Clover sends the browser back. No bearer token: the signed `state` authenticates it.",
+        "operationId": "clover_callback_api_v1_integraciones_clover_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "in": "query",
+            "name": "merchant_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Merchant Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to the POS settings page with `?clover=ok` or `?clover=error&motivo=`"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clover Callback",
+        "tags": [
+          "Integraciones"
+        ]
+      }
+    },
+    "/api/v1/integraciones/clover/conectar": {
+      "get": {
+        "description": "URL of Clover's authorization page; the POS sends the admin's browser there.",
+        "operationId": "conectar_clover_api_v1_integraciones_clover_conectar_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloverConectarResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Conectar Clover",
+        "tags": [
+          "Integraciones"
+        ]
+      }
+    },
+    "/api/v1/integraciones/clover/desconectar": {
+      "post": {
+        "operationId": "desconectar_clover_api_v1_integraciones_clover_desconectar_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloverDesconectarResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Desconectar Clover",
+        "tags": [
+          "Integraciones"
         ]
       }
     },
