@@ -653,6 +653,8 @@ def test_integration_status_reports_the_connection():
         "proveedor": "fake",
         "habilitado": True,
         "conectado": True,
+        "conectado_oauth": False,
+        "merchant_id": None,
         "device_id": None,
         "pos_id": None,
         "updated_at": None,
@@ -661,6 +663,37 @@ def test_integration_status_reports_the_connection():
     h = Harness(FakeTerminal(connected=False), store=InMemoryPagoStore(habilitado=False))
     status = h.service.estado_integracion()
     assert (status["habilitado"], status["conectado"]) == (False, False)
+
+
+def test_a_provider_that_needs_an_account_is_pinged_only_when_connected():
+    h = Harness(requires_oauth=True)
+    pings = []
+    h.terminal.ping = lambda: pings.append(1) or True
+
+    status = h.service.estado_integracion()
+    assert (status["conectado"], status["conectado_oauth"], status["merchant_id"]) == (False, False, None)
+    assert pings == []
+
+    h.store.integration.update(access_token_cifrado="enc-a", refresh_token_cifrado="enc-r", merchant_id="M123")
+    status = h.service.estado_integracion()
+    assert (status["conectado"], status["conectado_oauth"], status["merchant_id"]) == (True, True, "M123")
+    assert pings == [1]
+    assert "access_token_cifrado" not in status and "refresh_token_cifrado" not in status
+
+
+def test_enabling_needs_the_account_connected_first():
+    h = Harness(store=InMemoryPagoStore(habilitado=False), requires_oauth=True)
+
+    with pytest.raises(PagoError) as error:
+        h.service.actualizar_integracion({"habilitado": True}, ADMIN)
+    assert error.value.status_code == 409
+    assert error.value.message == "Conectá la cuenta del terminal antes de habilitarlo"
+    assert h.store.integration["habilitado"] is False
+    # Device details can be saved before connecting.
+    assert h.service.actualizar_integracion({"device_id": "C0123"}, ADMIN)["device_id"] == "C0123"
+
+    h.store.integration.update(access_token_cifrado="enc-a", refresh_token_cifrado="enc-r")
+    assert h.service.actualizar_integracion({"habilitado": True}, ADMIN)["habilitado"] is True
 
 
 def test_ping_errors_and_timeouts_mean_not_connected():

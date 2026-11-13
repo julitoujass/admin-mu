@@ -1,16 +1,31 @@
 import os
 
-# Dummy settings must be in place before the app (and its Supabase client) is imported.
-# Environment variables take precedence over any local .env file.
-os.environ["SUPABASE_URL"] = "http://localhost:54321"
-os.environ["SUPABASE_KEY"] = "test-key"
-os.environ["ENVIRONMENT"] = "test"
-os.environ["CORS_ORIGINS"] = "http://localhost:3000, https://pos.example.com"
-os.environ["LOG_LEVEL"] = "WARNING"
-os.environ["PAYMENT_TERMINAL"] = "fake"
-os.environ["PAYMENT_FAKE_DELAY_SECONDS"] = "0"
-# No background sweep of terminal charges while testing.
-os.environ["PAYMENT_RECONCILE_INTERVAL_SECONDS"] = "0"
+# `CLOVER_SANDBOX_LIVE=1 pytest -m clover_sandbox` runs the optional live suite with the real `.env`.
+LIVE_SANDBOX = os.environ.get("CLOVER_SANDBOX_LIVE") == "1"
+
+if not LIVE_SANDBOX:
+    # Dummy settings must be in place before the app (and its Supabase client) is imported.
+    # Environment variables take precedence over any local .env file.
+    os.environ["SUPABASE_URL"] = "http://localhost:54321"
+    os.environ["SUPABASE_KEY"] = "test-key"
+    os.environ["ENVIRONMENT"] = "test"
+    os.environ["CORS_ORIGINS"] = "http://localhost:3000, https://pos.example.com"
+    os.environ["LOG_LEVEL"] = "WARNING"
+    os.environ["PAYMENT_TERMINAL"] = "fake"
+    os.environ["PAYMENT_FAKE_DELAY_SECONDS"] = "0"
+    # No background sweep of terminal charges while testing.
+    os.environ["PAYMENT_RECONCILE_INTERVAL_SECONDS"] = "0"
+    # Clover: fixed dummy values so nothing is ever taken from a local .env.
+    os.environ["CLOVER_ENV"] = "sandbox"
+    os.environ["CLOVER_APP_ID"] = "TESTAPPID"
+    os.environ["CLOVER_APP_SECRET"] = "test-app-secret"
+    os.environ["CLOVER_TOKEN_KEY"] = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
+    os.environ["CLOVER_REDIRECT_URI"] = "http://localhost:8001/api/v1/integraciones/clover/callback"
+    os.environ["CLOVER_OAUTH_URL"] = ""
+    os.environ["CLOVER_API_URL"] = ""
+    os.environ["CLOVER_CONNECT_URL"] = ""
+    os.environ["CLOVER_POS_ID"] = "mundo-uniforme-pos"
+    os.environ["FRONTEND_URL"] = "http://localhost:3000"
 
 from unittest.mock import MagicMock  # noqa: E402
 

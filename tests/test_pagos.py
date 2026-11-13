@@ -307,10 +307,26 @@ def test_terminal_status_is_visible_to_any_user_without_device_details(employee_
         "proveedor": "fake",
         "habilitado": True,
         "conectado": True,
+        "conectado_oauth": False,
+        "merchant_id": None,
         "device_id": None,
         "pos_id": None,
         "updated_at": None,
     }
+
+
+def test_merchant_id_is_only_shown_to_admins(client, pagos):
+    setup = pagos()
+    setup.store.integration.update(merchant_id="M123", access_token_cifrado="enc-a", refresh_token_cifrado="enc-r")
+
+    login(EMPLOYEE_ID, "empleado")
+    body = client.get(f"{API}/integraciones/terminal").json()
+    assert (body["conectado_oauth"], body["merchant_id"]) == (True, None)
+
+    login(ADMIN_ID, "admin")
+    body = client.get(f"{API}/integraciones/terminal").json()
+    assert (body["conectado_oauth"], body["merchant_id"]) == (True, "M123")
+    assert not any("token" in key for key in body)
 
 
 def test_admin_updates_the_terminal_settings(client, pagos):

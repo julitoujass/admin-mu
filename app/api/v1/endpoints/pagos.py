@@ -78,7 +78,7 @@ def get_integracion_terminal(
     estado = service.estado_integracion()
     if getattr(current_user, "rol", None) != "admin":
         # Device details are configuration: only admins see them.
-        estado = {**estado, "device_id": None, "pos_id": None, "updated_at": None}
+        estado = {**estado, "device_id": None, "pos_id": None, "updated_at": None, "merchant_id": None}
     return estado
 
 

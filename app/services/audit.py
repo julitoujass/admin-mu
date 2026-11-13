@@ -26,6 +26,9 @@ AuditEvent = Literal[
     "CHARGE_CANCELLED",
     "REFUND_DONE",
     "TERMINAL_SETTINGS",
+    # Clover account (OAuth); see app/integrations/clover/connection.py.
+    "CLOVER_CONNECTED",
+    "CLOVER_DISCONNECTED",
 ]
 
 

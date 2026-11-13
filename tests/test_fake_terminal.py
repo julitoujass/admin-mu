@@ -155,10 +155,16 @@ def test_factory_builds_the_fake_by_default(monkeypatch):
     factory.get_terminal.cache_clear()
 
 
-def test_factory_clover_is_not_implemented_yet(monkeypatch):
+def test_factory_builds_the_clover_adapter(monkeypatch):
+    from app.integrations.clover.cloud_terminal import CloverCloudTerminal
+    from app.integrations.payment_terminal.port import PaymentTerminal
+
     factory.get_terminal.cache_clear()
     monkeypatch.setattr(factory.settings, "PAYMENT_TERMINAL", "clover")
 
-    with pytest.raises(NotImplementedError):
-        factory.get_terminal()
+    terminal = factory.get_terminal()
+
+    assert isinstance(terminal, CloverCloudTerminal)
+    assert isinstance(terminal, PaymentTerminal)
+    assert terminal._base_url == "https://apisandbox.dev.clover.com/connect"
     factory.get_terminal.cache_clear()

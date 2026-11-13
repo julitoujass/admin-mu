@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
     caja,
     catalogos,
     clientes,
+    clover,
     configuracion,
     pagos,
     productos,
@@ -21,7 +22,7 @@ from app.api.v1.endpoints import (
     usuarios,
     ventas,
 )
-from app.core.config import settings
+from app.core.config import APP_VERSION, settings
 from app.core.exceptions import CajaError, PagoError, UsuarioError
 from app.core.supabase import supabase
 from app.services.pago_reconciler import start_reconciler, stop_reconciler
@@ -72,7 +73,7 @@ async def lifespan(app: FastAPI):
         await stop_reconciler(reconciler)
 
 
-app = FastAPI(title="Uniforms POS API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Uniforms POS API", version=APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -157,6 +158,7 @@ app.include_router(configuracion.router, prefix="/api/v1/configuracion", tags=["
 app.include_router(auditoria.router, prefix="/api/v1/auditoria", tags=["Auditoría"])
 app.include_router(pagos.router, prefix="/api/v1/pagos", tags=["Pagos"])
 app.include_router(pagos.integraciones_router, prefix="/api/v1/integraciones", tags=["Integraciones"])
+app.include_router(clover.router, prefix="/api/v1/integraciones/clover", tags=["Integraciones"])
 
 
 @app.get("/")

@@ -11,5 +11,8 @@ def get_terminal() -> PaymentTerminal:
     if settings.PAYMENT_TERMINAL == "fake":
         return FakeTerminal(delay=settings.PAYMENT_FAKE_DELAY_SECONDS)
     if settings.PAYMENT_TERMINAL == "clover":
-        raise NotImplementedError("The Clover adapter arrives in stage C; use PAYMENT_TERMINAL=fake for now")
+        # Imported here so the fake setup never loads the Clover adapter nor needs its secrets.
+        from app.integrations.clover.wiring import build_clover_terminal
+
+        return build_clover_terminal()
     raise ValueError(f"Unknown PAYMENT_TERMINAL: {settings.PAYMENT_TERMINAL!r}")

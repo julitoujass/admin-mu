@@ -60,6 +60,7 @@ TERMINAL_HAS_NO_CHARGE = "El terminal no registra el cobro"
 SALE_NOT_REGISTERED = "No se pudo registrar la venta"
 REFUND_NOT_CONFIRMED = "reembolso no confirmado: revisar en el terminal"
 CANCEL_FAILED = "No se pudo cancelar el cobro en el terminal"
+ACCOUNT_NOT_CONNECTED = "Conectá la cuenta del terminal antes de habilitarlo"
 
 # Keys of a provider response that may carry card data; dropped before storing it.
 _SENSITIVE_KEY = re.compile(
@@ -107,6 +108,7 @@ class PagoService:
         stale_seconds: float = 180,
         max_attempts: int = 10,
         ping_timeout: float = 2.0,
+        requires_oauth: bool = False,
     ):
         self._terminal = terminal
         self._store = store
@@ -118,6 +120,8 @@ class PagoService:
         self._stale_seconds = stale_seconds
         self._max_attempts = max_attempts
         self._ping_timeout = ping_timeout
+        # The provider works on behalf of an account that an admin has to connect first.
+        self._requires_oauth = requires_oauth
 
     # --- Starting a charge (inside the request) ---------------------------------
 
@@ -419,22 +423,33 @@ class PagoService:
 
     def estado_integracion(self) -> dict:
         integration = self._store.get_integration() or {}
+        conectado_oauth = self._account_connected(integration)
         return {
             "proveedor": self._provider,
             "habilitado": bool(integration.get("habilitado")),
-            "conectado": self._ping(),
+            # Without a connected account the device cannot be reached: do not even try.
+            "conectado": self._ping() if conectado_oauth or not self._requires_oauth else False,
+            "conectado_oauth": conectado_oauth,
+            "merchant_id": integration.get("merchant_id"),
             "device_id": integration.get("device_id"),
             "pos_id": integration.get("pos_id"),
             "updated_at": integration.get("updated_at"),
         }
 
     def actualizar_integracion(self, changes: dict, user) -> dict:
+        if changes.get("habilitado") and self._requires_oauth:
+            if not self._account_connected(self._store.get_integration() or {}):
+                raise PagoError(ACCOUNT_NOT_CONNECTED, status_code=409)
         # The adapter in use comes from the environment; the row only mirrors it.
         row = self._store.update_integration({**changes, "proveedor": self._provider}, str(user.id))
         if row is None:
             raise PagoError("Integración no configurada", status_code=404)
         self._emit(str(user.id), "TERMINAL_SETTINGS", entidad="integracion_terminal", entidad_id=1, payload=changes)
         return self.estado_integracion()
+
+    @staticmethod
+    def _account_connected(integration: dict) -> bool:
+        return bool(integration.get("access_token_cifrado") and integration.get("refresh_token_cifrado"))
 
     def _ping(self) -> bool:
         """Ping with a deadline, so a hanging device never hangs the POS."""

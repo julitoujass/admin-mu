@@ -70,12 +70,26 @@ class PagoListResponse(BaseModel):
 class TerminalIntegracionResponse(BaseModel):
     proveedor: str
     habilitado: bool
-    # Result of a quick ping to the device.
+    # Result of a quick ping to the device (not attempted when the provider needs an account that is not connected).
     conectado: bool
+    # Whether the provider account is connected (OAuth tokens stored). Always false for the simulated terminal.
+    conectado_oauth: bool = False
+    # Merchant of the connected account; only filled in for admins.
+    merchant_id: Optional[str] = None
     # Device details are only filled in for admins.
     device_id: Optional[str] = None
     pos_id: Optional[str] = None
     updated_at: Optional[datetime] = None
+
+
+class CloverConectarResponse(BaseModel):
+    # Clover page where the admin authorizes the app; open it in the browser.
+    authorize_url: str
+
+
+class CloverDesconectarResponse(BaseModel):
+    conectado_oauth: bool
+    habilitado: bool
 
 
 class TerminalIntegracionUpdate(BaseModel):

@@ -23,8 +23,12 @@ class InMemoryPagoStore:
             "id": 1,
             "proveedor": "fake",
             "habilitado": habilitado,
+            "merchant_id": None,
             "device_id": None,
             "pos_id": None,
+            "access_token_cifrado": None,
+            "refresh_token_cifrado": None,
+            "access_expira_at": None,
             "updated_at": None,
             "updated_by": None,
         }

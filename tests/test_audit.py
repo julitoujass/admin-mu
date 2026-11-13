@@ -42,6 +42,8 @@ def test_event_names_are_the_normalized_set():
         "CHARGE_CANCELLED",
         "REFUND_DONE",
         "TERMINAL_SETTINGS",
+        "CLOVER_CONNECTED",
+        "CLOVER_DISCONNECTED",
     }
 
 
